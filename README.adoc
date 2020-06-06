@@ -84,10 +84,18 @@ On Debian based systems, dependencies may be installed using the command
 
 |`FIRMATA_PINS`
 |Comma-separated list of pin number with optional pin mode
-Supported pin modes: `input`, `pullup`.
-|pin[:mode][,pin[:mode] ...]
-|_none_
-|`2,3:pullup,4:input`
+
+|_pin_[_:mode_][_,pin_[_:mode_] ...]
+
+Pin modes: `input` / `pullup`
+|Pin: _no default_
+
+Pin Mode: `pullup`
+|`2`
+
+`2,3,4`
+
+`2,3:input,4`
 
 |`FIRMATA_DEVICE`
 |Serial firmata device to read messages from.
@@ -97,7 +105,7 @@ Supported pin modes: `input`, `pullup`.
 
 |`FIRMATA_INTERVAL`
 |Poll interval in milliseconds. When debouncing is disabled, value changes are
-reported immediately, not only between poll intervals (see --debounce).
+reported immediately, not only between poll intervals (see `FIRMATA_DEBOUNCE`).
 |Positive integer
 |`100`
 |`50`
@@ -116,7 +124,7 @@ When this switch is omitted, changes will be reported immediately.
 |`1`
 
 |`FIRMATA_COMMAND`
-|Command that is run for each message.
+|Command that is run for each message. See <<Command Line Interface>> for details.
 |Any executable file
 |`/opt/firmata-mqtt/mqtt-publish`
 |`/bin/echo`
@@ -218,7 +226,7 @@ When this switch is omitted, changes will be reported immediately.
   - Log debug messages
   - Do not publish over MQTT but call `/bin/echo` instead.
 
-== Customization
+== Command Line Interface
 The main part of this project is a command line program that connects to a
 microcontroller using the Firmata protocol and observes its input pins. For
 each value change of an observed pin, an external command is called with the
