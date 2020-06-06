@@ -1,0 +1,572 @@
+#!/usr/bin/perl
+
+=encoding utf-8
+=head1 NAME
+
+C<observe-firmata-input> - Firmata input observer
+
+
+=head1 SYNOPSIS
+
+A command line tool to observe input pins of a microcontroller using the
+Firmata protocol.
+
+
+=head1 DESCRIPTION
+
+This program connects to a microcontroller (e.g. Arduino) using the Firmata
+protocol and observes its input pins. For each value change of an observed pin,
+an external command is called with the following arguments: 
+
+ pin value timestamp duration count total
+
+Illustration:
+
+  ──┐               ┌──  1
+    │←───── d ─────→│
+    └───────────────┘    0
+                    ↑    ↑
+                    t    v
+
+  v: value
+  t: timestamp
+  d: duration
+
+=head2 Arguments
+
+=over 4
+
+=item C<pin>
+
+An integer containing the pin number.
+
+=item C<value>
+
+The value as reported by Firmata, e.g. C<0> or C<1>.
+
+=item C<timestamp>
+
+A decimal containing the timestamp of the value change.
+The integer part contains a unix timestamp (seconds since epoch).
+The fractional part has a precision of 9 digits (nanoseconds).
+
+=item C<duration>
+
+A decimal containing the duration since the previous value change with a
+precision of 9 digits (nanoseconds).
+
+=item C<count>
+
+An integer containing ths pin's number of changes to the current value.
+
+=item C<total>
+
+An integer containing the pin's total number of changes.
+
+=back
+
+=head2 Example
+
+ 9 1 1591428675.880354881 2.1215808391571 3 5
+
+Explanation: pin B<9> has changed to value B<1> at B<1591428675.880354881>
+(2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
+stable for about B<2.122> seconds (with value 0). This is the B<3>rd time
+that pin 9 changed to 1. The total number of value changes (either 0 → 1
+or 1 → 0) of pin 9 is B<5>.
+
+=head1 OPTIONS
+
+Most options may either be set as command line arguments (e.g. B<-c>,
+B<--command>) or environment variables (e.g. B<C<FIRMATA_COMMAND>>).
+
+=over 8
+
+=item B<-b>, B<--debounce>, B<C<FIRMATA_DEBOUNCE=1>>
+
+Enable simple software debouncing. When this option is set, value changes will
+be buffered until the current poll interval has elapsed (see B<--interval>).
+This may help when bouncing switches are connected to the Firmata device.
+Please note that this option effectively reduces the sample rate to the poll
+interval, thus the poll interval should be chosen carefully according to the
+connected hardware.
+
+When this switch is omitted, changes will be reported immediately.
+
+=item B<-c> I<command>, B<--command>=I<command>, B<C<FIRMATA_COMMAND>>=I<command>
+
+Command that is run for each message.
+
+=item B<-d> I<device>, B<--device>=I<device>, B<C<FIRMATA_DEVICE>>=I<device>
+
+Serial firmata device to read messages from.
+
+=item B<-h>, B<--help>
+
+Show usage and exit.
+
+=item B<-i> I<interval>, B<--interval>=I<interval>, B<C<FIRMATA_INTERVAL>>=I<interval>
+
+Poll interval in milliseconds. When debouncing is disabled, value changes are
+reported immediately, not only between poll intervals (see B<--debounce>).
+
+=item B<-p> I<pin>[I<:mode>], B<--pin>=I<pin>[I<:mode>], B<C<FIRMATA_PINS>>=I<pin>[I<:mode>][,I<pin>[I<:mode>]...]
+
+Pin number with optional pin mode. To observe multiple pins, repeat the command
+line argument or assign a comma-separated list to the environment variable.
+Supported pin modes: C<input>, C<pullup>.
+
+=item B<-v>, B<--verbose>,  B<C<FIRMATA_VERBOSE>>
+
+Log more verbose.
+
+=back
+
+
+=head1 EXAMPLES
+
+=over
+
+=item
+
+ observe-firmata-input --pin 2
+
+Connect to firmata device at C</dev/ttyUSB0>,
+configure pin C<2> as digital input with pullup,
+log messages to stderr
+and report pin changes to C<mqtt-publish>.
+
+=item
+
+ FIRMATA_PINS=2 FIRMATA_DEVICE=/dev/ttyUSB0 observe-firmata-input
+
+Same as above.
+
+=item
+
+ observe-firmata-input -p 2:pullup -d /dev/ttyUSB0 -v
+
+Same as above, but be more verbose.
+
+=item
+
+ observe-firmata-input --pin 2:pullup --pin 3:input --device /dev/ttyUSB1 --interval 50 --command /bin/echo
+
+Connect to firmata device at C</dev/ttyUSB1>,
+configure pin C<2> as digital input with pullup and pin C<3> as digital input pin (without pullup),
+poll every 50ms for changes,
+log messages to stderr
+and call C</bin/echo> for each change.
+
+=item
+
+ FIRMATA_PINS=2:pullup,3:input FIRMATA_DEVICE=/dev/ttyUSB1 FIRMATA_INTERVAL=50 FIRMATA_COMMAND=/bin/echo observe-firmata-input
+
+Same as above.
+
+=back
+
+=cut
+
+
+#----------------------------------------------------------------------
+
+##
+# Imports
+##
+
+use strict;
+use warnings;
+use sigtrap qw(handler handle_signal normal-signals);
+use Data::Dumper;
+use FindBin;
+use Getopt::Long qw(GetOptions);
+use Time::HiRes qw(time);
+use Try::Tiny;
+use Device::Firmata::Constants qw/ :all /;
+use Device::Firmata;
+
+
+#----------------------------------------------------------------------
+
+##
+# Constants
+##
+
+# Configuration defaults
+use constant {
+  DEFAULT_COMMAND  => "$FindBin::Bin/mqtt-publish",
+  DEFAULT_DEBOUNCE => 0,
+  DEFAULT_DEVICE   => '/dev/ttyUSB0',
+  DEFAULT_INTERVAL => 100,
+  DEFAULT_PINMODE  => 'pullup',
+};
+
+# Supported pin modes
+use constant PIN_MODES => {
+  'input'  => PIN_INPUT,
+  'pullup' => PIN_PULLUP
+};
+
+#----------------------------------------------------------------------
+
+##
+# Global variables
+##
+
+# External command to handle values reported by Firmata
+my $command;
+
+# Exit code for the main program. 'undefined' means: keep running
+my $exit_code;
+
+# Integer telling how verbose the program should be
+my $verbose;
+
+# Buffer for Firmata messages to allow debouncing
+my $buffer = {
+  debounce => undef,
+  pins     => {},
+};
+
+#----------------------------------------------------------------------
+
+##
+# Internal subroutines
+##
+
+sub stopped {
+  return defined $exit_code;
+}
+
+sub stop {
+  my $code = shift // 0;
+  $exit_code = $code if (!stopped() or ($code > $exit_code));
+}
+
+sub out {
+  foreach (@_) {
+    say STDERR $_;
+  }
+}
+
+sub verbose {
+  if ($verbose > 0) {
+    my $format = shift;
+    out sprintf $format, @_;
+  }
+}
+
+sub debug {
+  verbose @_ if $verbose > 1;
+}
+
+sub info {
+  out(@_);
+}
+
+sub warn {
+  @_[0] = "Warning: $_[0]";
+  out @_;
+}
+
+sub error {
+  my ($message) = @_;
+  stop(1);
+  out("Error: $message") if $message;
+}
+
+sub handle_signal {
+  stop();
+  info "Stopping due to signal $_[0]";
+}
+
+sub show_usage {
+  info "Usage: $0 [options]\n";
+  info "Options:";
+  info " -b, --debounce            Enable simple software debouncing.";
+  info " -c, --command <command>   Command that is run for each message.";
+  info "                           Default: '" . DEFAULT_COMMAND . "'";
+  info " -d, --device <device>     Serial firmata device to read messages from.";
+  info "                           Default: '" . DEFAULT_DEVICE . "'";
+  info " -h, --help                Print this message and exit.";
+  info " -i, --interval <interval> Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
+  info " -p, --pin <pin>[:mode]    Pin number with optional pin mode.";
+  info "                           This option may be repeated for each pin.";
+  info "                           Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PINMODE . "'";
+  info " -v, --verbose             Log verbosely. This option may be repeated to increase verbosity.";
+  info "";
+}
+
+
+#----------------------------------------------------------------------
+
+##
+# Configuration subroutines
+##
+
+#
+# Read and validate options from environment and the command line,
+# apply defaults and store them in the returned configuration hash.
+#
+sub read_configuration {
+  my ($config, $help, @pin_args);
+
+  # read pins from environment variable
+  @pin_args = split(',', $ENV{'FIRMATA_PINS'}) if defined $ENV{'FIRMATA_PINS'};
+
+  # read command line options; pins are added to the existing ones
+  error unless GetOptions(
+      'debounce|b'   => \$config->{debounce},
+      'command|c=s'  => \$config->{command},
+      'device|d=s'   => \$config->{device},
+      'help|h'       => \$help,
+      'interval|i=s' => \$config->{interval},
+      'pin|p=s'      => \@pin_args,
+      'verbose|v+'   => \$config->{verbose},
+  );
+  error "Unknown argument(s): " . join(",", @ARGV) if (@ARGV > 0);
+
+  # command
+  $config->{command}  //= $ENV{'FIRMATA_COMMAND'}  // DEFAULT_COMMAND;
+  error "Command '$config->{command}' is not an executable file." unless -x $config->{command};
+
+  # debounce
+  $config->{debounce} //= $ENV{'FIRMATA_DEBOUNCE'} // DEFAULT_DEBOUNCE;
+
+  # device
+  $config->{device}   //= $ENV{'FIRMATA_DEVICE'}   // DEFAULT_DEVICE;
+  error "Device '$config->{device}' is not a special character file." unless (-c $config->{device} or $help);
+
+  # interval
+  $config->{interval} //= $ENV{'FIRMATA_INTERVAL'} // DEFAULT_INTERVAL;
+  error "Interval '$config->{interval}' is not a positive number." unless $config->{interval} =~ /^\d+$/;
+
+  # pins
+  $config->{pin_config} = read_pin_config(@pin_args);
+  error "At least one pin argument is required." unless ($config->{pin_config} or $help);
+
+  # verbose
+  $config->{verbose} //= $ENV{'FIRMATA_VERBOSE'} // 0;
+
+  stop() if $help;
+
+  return $config;
+}
+
+
+#
+# Read and validate pin configuration from the command line and apply defaults.
+#
+sub read_pin_config {
+  my @pin_args = @_;
+
+  my $pin_config;
+  foreach (@pin_args) {
+    my ($pin, $modename) = split(':', $_);
+    $modename //= DEFAULT_PINMODE;
+    error "Pin parameter '$pin' is not a positive number." unless $pin =~ /^\d+$/;
+    error "Mode '$modename' for pin $pin is not supported." unless grep(/^$modename$/, keys %{PIN_MODES()});
+    $pin_config->{$pin} = PIN_MODES->{$modename};
+  }
+  return $pin_config;
+}
+
+
+#----------------------------------------------------------------------
+
+##
+# Buffer subroutines
+##
+
+sub buffer_put {
+  my ($pin, $value) = @_;
+  my $now = sprintf("%.9f", time());
+  $buffer->{pins}->{$pin}->{current} = {
+    value => $value,
+    timestamp => $now
+  };
+  debug "%s: Received pin %02d = %s", $now, $pin, $value;
+}
+
+sub buffer_take {
+  my ($pin) = @_;
+  my $data = $buffer->{pins}->{$pin};
+  my $current = delete $data->{current};
+  return if !defined $current;
+
+
+################################################################################
+#
+#          ┌──────┐               ┌──  1
+#          │      │←───── d ─────→│
+#       ───┘      └───────────────┘    0
+#          ↑      ↑               ↑    ↑
+#          p      c               t    v
+#
+#  v: $value              current pin state value
+#  t: $current_timestamp  timestamp of current pin state change
+#  c: $change_timestamp   timestamp of previous pin state change
+#  p: $previous_timestamp timestamp of previous change to current pin state
+#  d: $duration           duration between previous change and current change
+#
+################################################################################
+
+  my $value = $current->{value};
+  my $inverted_value = $value ? 0 : 1;
+  my $current_timestamp = $current->{timestamp};
+  my $change_timestamp = $data->{$inverted_value}->{timestamp} // $current_timestamp;
+  my $previous_timestamp = $data->{$value}->{timestamp} // $change_timestamp;
+  $data->{$value}->{timestamp} = $current_timestamp;
+  if ($previous_timestamp > $change_timestamp) {
+    debug "Pin %02d: %s is repeated, ignoring ($previous_timestamp > $change_timestamp)", $pin, $value;
+    return;
+  }
+
+  my $duration = $current_timestamp - $change_timestamp;
+  my $state_count = ++$data->{$value}->{count};
+  my $change_count = $state_count + ($data->{$inverted_value}->{count} // 0);
+  my $state = {
+    pin       => $pin,
+    value     => $value,
+    timestamp => $current_timestamp,
+    duration  => $duration,
+    count     => $state_count,
+    total     => $change_count,
+  };
+  return $state;
+}
+
+sub buffer_report {
+  my ($pin) = @_;
+  my $state = buffer_take($pin);
+  if (defined $state) {
+    my @args = ($pin, $state->{value}, $state->{timestamp}, $state->{duration}, $state->{count}, $state->{total});
+    verbose "%02d = %s at %.6f for %.6fs (change %d/%d)", @args;
+    debug "Calling '%s' with args" . (" '%s'" x scalar(@args)), ($command, @args);
+    system($command, @args) == 0
+      or error "Command '$command' returned " . ($? >> 8) . ": $!";
+  }
+}
+
+
+#----------------------------------------------------------------------
+
+##
+# Firmata subroutines
+##
+
+#
+# Connect to a Firmata device.
+#
+sub firmata_connect {
+  my ($device) = @_;
+
+  info "Connecting to Firmata device at $device";
+  my $platform = Device::Firmata->open($device);
+  verbose "%s", "Connection established.";
+  my $metadata = $platform->{metadata};
+  my $firmware_version = $metadata->{firmware_version};
+  foreach (keys %$COMMANDS) {
+      $platform->{protocol}->{protocol_version} = $_ if ($firmware_version eq $_);
+  }
+  verbose "Server implementation: %s %s with protocol %s", $metadata->{firmware}, $firmware_version, $platform->{protocol}->{protocol_version};
+  return $platform;
+}
+
+#
+# Disconnect from a Firmata device.
+#
+sub firmata_disconnect {
+  my ($platform) = @_;
+  if (defined $platform) {
+    $platform->close();
+    info "Disconnected from Firmata device."
+  }
+}
+
+#
+# Configure pins on the connected Firmata device and start observing.
+#
+sub firmata_observe {
+  my ($platform, $pin_config) = @_;
+  my @pins = (sort {$a <=> $b} keys %{$pin_config});
+  info "Observed pin(s): " . join(", ", @pins);
+  foreach my $pin (@pins) {
+    my $mode = $pin_config->{$pin};
+    verbose "Configuring pin %02d for mode %s", $pin, $mode;
+    $platform->pin_mode($pin => $mode);
+    $platform->observe_digital($pin, \&firmata_report);
+  }
+}
+
+#
+# Report pin values to external command.
+# This subroutine is called by Firmata.
+#
+sub firmata_report {
+  my ($pin, $old, $new) = @_;
+  if ($old == $new) {
+    debug "Ignoring firmata message because the value didn't change: pin %02i = %s", $pin, $new;
+    return;
+  }
+  buffer_put($pin, $new);
+  buffer_report($pin) if !$buffer->{debounce};
+}
+
+#
+# Poll pin values until exit signal arrives.
+#
+sub firmata_poll {
+  my ($platform, $interval) = @_;
+  while (!stopped()) {
+    $platform->poll;
+    # sleep for $interval ms
+    select undef, undef, undef, $interval/1000.0;
+    if ($buffer->{debounce}) {
+      foreach my $pin (keys %{$buffer->{pins}}) {
+        buffer_report($pin);
+      }
+    }
+  }
+}
+
+#
+# Connect and observe the Firmata device.
+#
+sub firmata_start {
+  my ($config) = @_;
+  my $platform;
+  try {
+    $platform = firmata_connect($config->{device});
+    firmata_observe($platform, $config->{pin_config});
+    firmata_poll($platform, $config->{interval});
+  } catch {
+    error $_;
+  } finally {
+    firmata_disconnect($platform);
+  }
+}
+
+
+#----------------------------------------------------------------------
+
+#
+# Start the program.
+#
+sub main {
+  my $config = read_configuration();
+  # set global variables from config
+  $buffer->{debounce} = $config->{debounce};
+  $command = $config->{command};
+  $verbose = $config->{verbose};
+  verbose "Configuration: %s", Data::Dumper->new([$config])->Terse(1)->Dump();
+  if (stopped()) {
+    show_usage();
+  } else {
+    firmata_start($config);
+  }
+}
+
+main();
+exit $exit_code;

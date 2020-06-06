@@ -1,0 +1,284 @@
+= firmata-mqtt
+A Docker image to publish digital input of a microcontroller over MQTT.
+
+== Description
+This project provides a Docker container to read signals from a
+microcontroller and publish them over MQTT.
+
+Its main use case is to integrate impulse devices like S0 counters into a home
+automation system.
+
+== Prerequisites
+* A microcontroller running a http://firmata.org/[Firmata]-compatible firmware
+  (e.g. an Arduino running https://github.com/firmata/arduino[Firmata] or 
+  https://github.com/firmata/ConfigurableFirmata[ConfigurableFirmata])
+* A running MQTT broker (e.g. https://mosquitto.org/[mosquitto])
+* Docker
+* Optional and recommended: docker-compose
+
+On Debian based systems, dependencies may be installed using the command
+
+ $ sudo apt-get install docker-ce docker-compose
+
+
+== TL;DR
+. Install Docker and MQTT broker.
+. Download Arduino IDE and flash Firmata.
+. Connect a hardware device (e.g. a S0 counter) to the Arduino:
+  * Device signal (+) -> Arduino digital pin (e.g. pin 2)
+  * Device GND (-) -> Arduino GND
+. Create `docker-compose.yml` configuration file.
+. Run `docker-compose-up -d`.
+
+== Usage
+. Create a run configuration, e.g.
++
+.docker-compose.yml
+[source,yaml]
+----
+  ---
+  version: "2.2"
+  services:
+    firmata-mqtt:
+      image: "ckware/firmata-mqtt"
+      container_name: "firmata-mqtt"
+      init: "true"
+      restart: "unless-stopped"
+      devices:
+      - /dev/ttyUSB0
+      environment:
+        MQTT_OPTIONS: "-h broker-host"
+        FIRMATA_PINS: "9,12"
+        FIRMATA_DEBOUNCE: 1
+----
+. Start a container:
++
+  $ docker-compose up -d
+
+. Receive value changes:
++
+  $ mosquitto_sub -h broker-host -t firmata/#
+  { "pin":9, "value":1, "timestamp":1591433920.998897, "duration":0.000000, "count":1, "total":1 }
+  { "pin":12, "value":1, "timestamp":1591433920.998964, "duration":0.000000, "count":1, "total":1 }
+  { "pin":9, "value":0, "timestamp":1591433925.275766, "duration":4.276869, "count":1, "total":2 }
+  { "pin":9, "value":1, "timestamp":1591433925.460701, "duration":0.184935, "count":2, "total":3 }
+  { "pin":12, "value":0, "timestamp":1591433936.678961, "duration":15.679997, "count":1, "total":2 }
+  { "pin":12, "value":1, "timestamp":1591433936.759564, "duration":0.080603, "count":2, "total":3 }
+  ^C
+  $ docker-compose down
+  $ docker-compose logs
+  Connecting to Firmata device at /dev/ttyUSB0
+  Connection established.
+  Server implementation: ConfigurableFirmata.ino V_2_10 with protocol V_2_06
+  Observed pin(s): 9, 12
+  Configuring pin 09 for mode 11
+  Configuring pin 12 for mode 11
+  Stopping due to signal TERM
+  Disconnected from Firmata device.
+
+== Configuration
+
+.Firmata Options
+|===
+|Environment variable|Description|Allowed values|Default|Example
+
+|`FIRMATA_PINS`
+|Comma-separated list of pin number with optional pin mode
+Supported pin modes: `input`, `pullup`.
+|pin[:mode][,pin[:mode] ...]
+|_none_
+|`2,3:pullup,4:input`
+
+|`FIRMATA_DEVICE`
+|Serial firmata device to read messages from.
+|Any special character file
+|`/dev/ttyUSB0`
+|`/dev/ttyUSB1`
+
+|`FIRMATA_INTERVAL`
+|Poll interval in milliseconds. When debouncing is disabled, value changes are
+reported immediately, not only between poll intervals (see --debounce).
+|Positive integer
+|`100`
+|`50`
+
+|`FIRMATA_DEBOUNCE`
+|Enable simple software debouncing. When this option is set to `1`, value
+changes will be buffered until the current poll interval has elapsed (see
+`FIRMATA_INTERVAL`). This may help when bouncing switches are connected to the
+Firmata device. Please note that this option effectively reduces the sample
+rate to the poll interval, thus the poll interval should be chosen carefully
+according to the connected hardware.
+
+When this switch is omitted, changes will be reported immediately.
+|`0` / `1`
+|`0`
+|`1`
+
+|`FIRMATA_COMMAND`
+|Command that is run for each message.
+|Any executable file
+|`/opt/firmata-mqtt/mqtt-publish`
+|`/bin/echo`
+
+|`FIRMATA_VERBOSE`
+|Log verbosity.
+|`0` / `1` (verbose) / `2` (debug)
+|`0`
+|`1`
+|===
+
+.MQTT Options
+|===
+|Environment variable|Description|Allowed values|Default|Example
+
+|`MQTT_OPTIONS`
+|MQTT options
+|All options supported by https://mosquitto.org/man/mosquitto_pub-1.html[`mosquitto_pub`]
+|_none_
+|`-v -h broker`
+
+|`MQTT_TOPIC`
+|MQTT topic for publishing sensor data
+|http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718106[Topic names]
+|`firmata`
+|`devices/sensors`
+
+|`MQTT_TOPIC_APPEND_ID`
+|Append sensor ID to topic?
+|`true` / `false`
+|`true`
+|`true`
+
+|`MQTT_TOPIC_APPEND_FORMAT`
+|Append format (one of: `json`, `raw`) to topic?
+|`true` / `false`
+|`true`
+|`true`
+
+|`FORMAT_JSON`
+|Publish sensor data in JSON format?
+|`true` / `false`
+|`true`
+|`true`
+
+|`FORMAT_RAW`
+|Publish sensor data in raw format?
+|`true` / `false`
+|`false`
+|`false`
+
+|`FORMAT_RAW_SEPARATOR`
+|Field separator for raw format
+|String
+|Whitespace (`\u0020`)
+|`,`
+
+|===
+
+== Examples
+. Example: Default for a S0 counter
++
+  environment:
+    FIRMATA_PINS: "2"
+    FIRMATA_DEBOUNCE: "1"
+    MQTT_OPTIONS: "-h broker-host"
+
+  - Connect to firmata device at `/dev/ttyUSB0` (default)
+  - Configure pin `2` as digital input with pullup
+  - Enable software debouncing
+  - Publish to `broker-host`
+
+. Example: Different devices with lower sample rate
++
+  environment:
+    FIRMATA_DEVICE: "/dev/ttyUSB1"
+    FIRMATA_PINS: "2:pullup,3:input"
+    FIRMATA_INTERVAL: "50"
+    FIRMATA_VERBOSE: "1"
+    MQTT_OPTIONS: "-h broker-host"
+
+  - Connect to firmata device at `/dev/ttyUSB1`
+  - Disable software debouncing (default)
+  - Configure pin `2` as digital input with pullup
+  - Configure pin `3` as digital input pin (without pullup)
+  - Poll every `50` ms for changes
+  - Log verbose messages
+  - Publish to `broker-host`
+
+. Example: Debugging
++
+  environment:
+    FIRMATA_PINS: "2"
+    FIRMATA_VERBOSE: "2"
+    FIRMATA_COMMAND: "/bin/echo"
+
+  - Connect to firmata device at `/dev/ttyUSB0`
+  - Configure pin `2` as digital input with pullup
+  - Log debug messages
+  - Do not publish over MQTT but call `/bin/echo` instead.
+
+== Customization
+The main part of this project is a command line program that connects to a
+microcontroller using the Firmata protocol and observes its input pins. For
+each value change of an observed pin, an external command is called with the
+following arguments: 
+
+    pin value timestamp duration count total
+
+By default, the external command is a shell script that converts the arguments
+to JSON (or optionally keeps them raw) and publishes them over MQTT. The
+`command` option may be used to set a different command for custom processing.
+
+=== Arguments
+
+Illustration of a value change:
+
+    ──┐               ┌──  1
+      │←───── d ─────→│
+      └───────────────┘    0
+                      ↑    ↑
+                      t    v
+    v: value
+    t: timestamp
+    d: duration
+
+
+- `pin`: An integer containing the pin number.
+
+- `value`: The value as reported by Firmata, e.g. `0` or `1`.
+
+- `timestamp`: A decimal containing the timestamp of the value change.
+  The integer part contains a unix timestamp (seconds since epoch).
+  The fractional part has a precision of 9 digits (nanoseconds).
+
+- `duration`: A decimal containing the duration since the previous value change
+  with a precision of 9 digits (nanoseconds).
+
+- `count`
+  An integer containing ths pin's number of changes to the current value.
+
+- `total`
+  An integer containing the pin's total number of changes.
+
+=== Example
+
+    9 1 1591428675.880354881 2.1215808391571 3 5
+
+Explanation: pin **9** has changed to value **1** at **1591428675.880354881**
+(2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
+stable for about **2.122** seconds (with value 0). This is the **3**rd time
+that pin 9 changed to 1. The total number of value changes (either 0 → 1
+or 1 → 0) of pin 9 is **5**.
+
+== References
+* This project is an integration of
+  - https://github.com/ntruchsess/perl-firmata[perl-firmata]
+  - https://github.com/firmata/protocol[Firmata protocol]
+  - https://mosquitto.org/[Mosquitto] - An Open Source MQTT Broker
+  - The https://github.com/opencontainers/image-spec[OCI image] format
+  - https://www.docker.com/[Docker]
+
+* History and details (in German): https://github.com/git-developer/fhem-examples/wiki/S0-Z%C3%A4hler-mit-ConfigurableFirmata[S0 Zähler mit ConfigurableFirmata]
+* Arduino Firmata impementation: https://github.com/firmata/ConfigurableFirmata[ConfigurableFirmata]
+* A similar project for temperature sensors: https://github.com/git-developer/tfrec-mqtt[tfrec-mqtt]

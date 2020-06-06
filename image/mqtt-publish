@@ -1,0 +1,59 @@
+#!/bin/sh
+#
+# Publish firmata message as MQTT message
+#
+# Arguments: firmata message, e.g.
+#
+# pin value timestamp            duration        count total
+# 9   1     1591428675.880354881 2.1215808391571 3     5
+set -eu
+
+MQTT_TOPIC="${MQTT_TOPIC:-firmata}"
+MQTT_TOPIC_APPEND_ID="${MQTT_TOPIC_APPEND_ID:-true}"
+MQTT_TOPIC_APPEND_FORMAT="${MQTT_TOPIC_APPEND_FORMAT:-true}"
+
+FORMAT_RAW="${FORMAT_RAW:-false}"
+FORMAT_RAW_SEPARATOR="${FORMAT_RAW_SEPARATOR:- }"
+FORMAT_JSON="${FORMAT_JSON:-true}"
+
+cancel() {
+  # local set is required because global has no effect, at least in busybox ash
+  set -eu
+  echo >&2 "Error: ${@}"
+  return 1
+}
+
+publish() {
+  format="${1}"
+  id="${2}"
+  message="${3}"
+
+  topic="${MQTT_TOPIC}"
+  [ ! "${MQTT_TOPIC_APPEND_ID}"     = 'true' ] || topic="${topic}/${id}"
+  [ ! "${MQTT_TOPIC_APPEND_FORMAT}" = 'true' ] || topic="${topic}/${format}"
+  printf "%s " '-t' "${topic}" '-m' "'${message}'" "${MQTT_OPTIONS-}" | xargs mosquitto_pub
+}
+
+build_raw_message() {
+  printf "%s${FORMAT_RAW_SEPARATOR}" "${@}"
+}
+
+build_json_message() {
+  [ ! "${#}" -lt "6" ] || cancel "too few arguments: '${@}'"
+  echo "${@}" | while read pin value timestamp duration count total; do
+    printf '{ "pin":%i, "value":%i, "timestamp":%.6f, "duration":%.6f, "count":%i, "total":%i }' \
+            "${pin}" " ${value}"  "${timestamp}"    "${duration}"    "${count}"  "${total}"
+  done
+}
+
+main() {
+  [ -n "${1-}" ] || cancel "No arguments"
+  if [ "${FORMAT_RAW}"  = 'true' ]; then
+    publish 'raw' "${1}" "$(build_raw_message "${@}")"
+  fi
+  if [ "${FORMAT_JSON}" = 'true' ]; then
+    publish 'json' "${1}" "$(build_json_message "${@}")"
+  fi
+}
+
+main "${@}"

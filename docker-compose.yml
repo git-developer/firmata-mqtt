@@ -1,0 +1,26 @@
+---
+version: "2.2"
+services:
+  firmata-mqtt:
+    image: "ckware/firmata-mqtt"
+    container_name: "firmata-mqtt"
+    init: "true"
+    restart: "unless-stopped"
+    devices:
+    - /dev/ttyUSB0
+    environment:
+# required:
+#      FIRMATA_PINS: "2,3"
+#      MQTT_OPTIONS: "-h mqtt-broker"
+# optional:
+#      FIRMATA_DEVICE: "/dev/ttyUSB0"
+#      FIRMATA_INTERVAL: "100"
+#      FIRMATA_DEBOUNCE: "1"
+#      FIRMATA_COMMAND: "/opt/firmata-mqtt/mqtt-publish"
+#      FIRMATA_VERBOSE: "0"
+#      MQTT_TOPIC: "firmata"
+#      MQTT_TOPIC_APPEND_ID: "true"
+#      MQTT_TOPIC_APPEND_FORMAT: "true"
+#      FORMAT_RAW: "false"
+#      FORMAT_RAW_SEPARATOR: " "
+#      FORMAT_JSON: "true"
