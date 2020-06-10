@@ -82,17 +82,6 @@ B<--command>) or environment variables (e.g. B<C<FIRMATA_COMMAND>>).
 
 =over 8
 
-=item B<-b>, B<--debounce>, B<C<FIRMATA_DEBOUNCE=1>>
-
-Enable simple software debouncing. When this option is set, value changes will
-be buffered until the current poll interval has elapsed (see B<--interval>).
-This may help when bouncing switches are connected to the Firmata device.
-Please note that this option effectively reduces the sample rate to the poll
-interval, thus the poll interval should be chosen carefully according to the
-connected hardware.
-
-When this switch is omitted, changes will be reported immediately.
-
 =item B<-c> I<command>, B<--command>=I<command>, B<C<FIRMATA_COMMAND>>=I<command>
 
 Command that is run for each message.
@@ -107,14 +96,35 @@ Show usage and exit.
 
 =item B<-i> I<interval>, B<--interval>=I<interval>, B<C<FIRMATA_INTERVAL>>=I<interval>
 
-Poll interval in milliseconds. When debouncing is disabled, value changes are
-reported immediately, not only between poll intervals (see B<--debounce>).
+Poll interval in milliseconds. When strategy is C<instant>, value changes are
+reported instantly, not only between poll intervals (see B<--strategy>).
 
-=item B<-p> I<pin>[I<:mode>], B<--pin>=I<pin>[I<:mode>], B<C<FIRMATA_PINS>>=I<pin>[I<:mode>][,I<pin>[I<:mode>]...]
+=item B<-p> I<pin>[I<:mode>[I:<strategy>]], B<--pin>=I<pin>[I<:mode>[I:<strategy>]]
+B<C<FIRMATA_PINS>>=I<pin>[I<:mode>[I:<strategy>]][,I<pin>[I<:mode>[I:<strategy>]]...]
 
-Pin number with optional pin mode. To observe multiple pins, repeat the command
-line argument or assign a comma-separated list to the environment variable.
+Pin number with optional pin mode and detection strategy. To observe multiple pins,
+repeat the command line argument or assign a comma-separated list to the environment
+variable.
+
 Supported pin modes: C<input>, C<pullup>.
+
+Supported strategies: See B<--strategy>.
+
+=item B<-s> I<strategy>, B<--strategy> I<strategy>, B<C<FIRMATA_STRATEGY>>=I<strategy>
+
+Set the default detection strategy for all pins.
+Supported strategies: C<instant>, C<debounce>. Default: C<instant>.
+
+When this option is C<instant>, changes will be reported immediately.
+
+When this option is C<debounce>, value changes will be buffered until the
+current poll interval has elapsed (see B<--interval>). This may help when
+bouncing switches are connected to the Firmata device. Please note that this
+option effectively reduces the sample rate to the poll interval, thus the poll
+interval should be chosen carefully according to the connected hardware.
+
+The option serves as default for all pins and may be overriden per pin
+(see B<--pin>).
 
 =item B<-v>, B<--verbose>,  B<C<FIRMATA_VERBOSE>>
 
@@ -196,16 +206,22 @@ use Device::Firmata;
 # Configuration defaults
 use constant {
   DEFAULT_COMMAND  => "$FindBin::Bin/mqtt-publish",
-  DEFAULT_DEBOUNCE => 0,
+  DEFAULT_STRATEGY => 'instant',
   DEFAULT_DEVICE   => '/dev/ttyUSB0',
   DEFAULT_INTERVAL => 100,
-  DEFAULT_PINMODE  => 'pullup',
+  DEFAULT_PIN_MODE => 'pullup',
 };
 
 # Supported pin modes
 use constant PIN_MODES => {
   'input'  => PIN_INPUT,
   'pullup' => PIN_PULLUP
+};
+
+# Supported detection strategies
+use constant STRATEGIES => {
+  'instant'  => 0,
+  'debounce' => 1
 };
 
 #----------------------------------------------------------------------
@@ -223,11 +239,22 @@ my $exit_code;
 # Integer telling how verbose the program should be
 my $verbose;
 
-# Buffer for Firmata messages to allow debouncing
-my $buffer = {
-  debounce => undef,
-  pins     => {},
-};
+# Buffer for Firmata messages to allow debouncing. Content:
+#
+# $buffer
+#   $pin
+#     debounce
+#     data
+#       current
+#         timestamp
+#         value
+#       0
+#         timestamp
+#         count
+#       1
+#         timestamp
+#         count
+my $buffer = {};
 
 #----------------------------------------------------------------------
 
@@ -284,17 +311,18 @@ sub handle_signal {
 sub show_usage {
   info "Usage: $0 [options]\n";
   info "Options:";
-  info " -b, --debounce            Enable simple software debouncing.";
-  info " -c, --command <command>   Command that is run for each message.";
-  info "                           Default: '" . DEFAULT_COMMAND . "'";
-  info " -d, --device <device>     Serial firmata device to read messages from.";
-  info "                           Default: '" . DEFAULT_DEVICE . "'";
-  info " -h, --help                Print this message and exit.";
-  info " -i, --interval <interval> Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
-  info " -p, --pin <pin>[:mode]    Pin number with optional pin mode.";
-  info "                           This option may be repeated for each pin.";
-  info "                           Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PINMODE . "'";
-  info " -v, --verbose             Log verbosely. This option may be repeated to increase verbosity.";
+  info " -c, --command <command>           Command that is run for each message.";
+  info "                                   Default: '" . DEFAULT_COMMAND . "'";
+  info " -d, --device <device>             Serial firmata device to read messages from.";
+  info "                                   Default: '" . DEFAULT_DEVICE . "'";
+  info " -h, --help                        Print this message and exit.";
+  info " -i, --interval <interval>         Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
+  info " -p, --pin <pin>[:mode[:strategy]] Pin number with optional pin mode and detection strategy.";
+  info "                                   This option may be repeated for each pin.";
+  info "                                   Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PIN_MODE . "'";
+  info " -s, --strategy <strategy>         Default detection strategy for all pins.";
+  info "                                   Supported strategies: [instant, debounce]. Default: '" . DEFAULT_STRATEGY . "'";
+  info " -v, --verbose                     Log verbosely. This option may be repeated to increase verbosity.";
   info "";
 }
 
@@ -317,34 +345,40 @@ sub read_configuration {
 
   # read command line options; pins are added to the existing ones
   error unless GetOptions(
-      'debounce|b'   => \$config->{debounce},
-      'command|c=s'  => \$config->{command},
-      'device|d=s'   => \$config->{device},
-      'help|h'       => \$help,
-      'interval|i=s' => \$config->{interval},
-      'pin|p=s'      => \@pin_args,
-      'verbose|v+'   => \$config->{verbose},
+      'command|c=s'    => \$config->{command},
+      'device|d=s'     => \$config->{device},
+      'help|h'         => \$help,
+      'interval|i=s'   => \$config->{interval},
+      'pin|p=s'        => \@pin_args,
+      'strategy|s=s'   => \$config->{strategy},
+      'verbose|v+'     => \$config->{verbose},
   );
   error "Unknown argument(s): " . join(",", @ARGV) if (@ARGV > 0);
 
   # command
   $config->{command}  //= $ENV{'FIRMATA_COMMAND'}  // DEFAULT_COMMAND;
-  error "Command '$config->{command}' is not an executable file." unless -x $config->{command};
+  error "Command '$config->{command}' is not an executable file."
+    unless -x $config->{command};
 
-  # debounce
-  $config->{debounce} //= $ENV{'FIRMATA_DEBOUNCE'} // DEFAULT_DEBOUNCE;
+  # detection strategy
+  $config->{strategy} //= $ENV{'FIRMATA_STRATEGY'} // DEFAULT_STRATEGY;
+  error "Detection strategy '$config->{strategy}' is not supported."
+    unless grep(/^$config->{strategy}$/, keys %{STRATEGIES()});
 
   # device
   $config->{device}   //= $ENV{'FIRMATA_DEVICE'}   // DEFAULT_DEVICE;
-  error "Device '$config->{device}' is not a special character file." unless (-c $config->{device} or $help);
+  error "Device '$config->{device}' is not a special character file."
+    unless (-c $config->{device} or $help);
 
   # interval
   $config->{interval} //= $ENV{'FIRMATA_INTERVAL'} // DEFAULT_INTERVAL;
-  error "Interval '$config->{interval}' is not a positive number." unless $config->{interval} =~ /^\d+$/;
+  error "Interval '$config->{interval}' is not a positive number."
+    unless $config->{interval} =~ /^\d+$/;
 
   # pins
-  $config->{pin_config} = read_pin_config(@pin_args);
-  error "At least one pin argument is required." unless ($config->{pin_config} or $help);
+  $config->{pin_config} = read_pin_config($config->{strategy}, @pin_args);
+  error "At least one pin argument is required."
+    unless ($config->{pin_config} or $help);
 
   # verbose
   $config->{verbose} //= $ENV{'FIRMATA_VERBOSE'} // 0;
@@ -359,15 +393,20 @@ sub read_configuration {
 # Read and validate pin configuration from the command line and apply defaults.
 #
 sub read_pin_config {
-  my @pin_args = @_;
+  my ($default_strategy, @pin_args) = @_;
 
   my $pin_config;
   foreach (@pin_args) {
-    my ($pin, $modename) = split(':', $_);
-    $modename //= DEFAULT_PINMODE;
+    my ($pin, $pin_mode, $strategy) = split(':', $_);
     error "Pin parameter '$pin' is not a positive number." unless $pin =~ /^\d+$/;
-    error "Mode '$modename' for pin $pin is not supported." unless grep(/^$modename$/, keys %{PIN_MODES()});
-    $pin_config->{$pin} = PIN_MODES->{$modename};
+
+    $pin_mode //= DEFAULT_PIN_MODE;
+    error "Mode '$pin_mode' for pin $pin is not supported." unless grep(/^$pin_mode$/, keys %{PIN_MODES()});
+    $pin_config->{$pin}->{mode} = PIN_MODES->{$pin_mode};
+
+    $strategy //= $default_strategy;
+    error "Detection strategy '$strategy' for pin $pin is not supported." unless grep(/^$strategy$/, keys %{STRATEGIES()});
+    $pin_config->{$pin}->{debounce} = STRATEGIES->{$strategy};
   }
   return $pin_config;
 }
@@ -382,7 +421,7 @@ sub read_pin_config {
 sub buffer_put {
   my ($pin, $value) = @_;
   my $now = sprintf("%.9f", time());
-  $buffer->{pins}->{$pin}->{current} = {
+  $buffer->{$pin}->{data}->{current} = {
     value => $value,
     timestamp => $now
   };
@@ -391,7 +430,7 @@ sub buffer_put {
 
 sub buffer_take {
   my ($pin) = @_;
-  my $data = $buffer->{pins}->{$pin};
+  my $data = $buffer->{$pin}->{data};
   my $current = delete $data->{current};
   return if !defined $current;
 
@@ -493,7 +532,7 @@ sub firmata_observe {
   my @pins = (sort {$a <=> $b} keys %{$pin_config});
   info "Observed pin(s): " . join(", ", @pins);
   foreach my $pin (@pins) {
-    my $mode = $pin_config->{$pin};
+    my $mode = $pin_config->{$pin}->{mode};
     verbose "Configuring pin %02d for mode %s", $pin, $mode;
     $platform->pin_mode($pin => $mode);
     $platform->observe_digital($pin, \&firmata_report);
@@ -511,7 +550,7 @@ sub firmata_report {
     return;
   }
   buffer_put($pin, $new);
-  buffer_report($pin) if !$buffer->{debounce};
+  buffer_report($pin) if !$buffer->{$pin}->{debounce};
 }
 
 #
@@ -523,8 +562,8 @@ sub firmata_poll {
     $platform->poll;
     # sleep for $interval ms
     select undef, undef, undef, $interval/1000.0;
-    if ($buffer->{debounce}) {
-      foreach my $pin (keys %{$buffer->{pins}}) {
+    foreach my $pin (keys %{$buffer}) {
+      if ($buffer->{$pin}->{debounce}) {
         buffer_report($pin);
       }
     }
@@ -557,7 +596,9 @@ sub firmata_start {
 sub main {
   my $config = read_configuration();
   # set global variables from config
-  $buffer->{debounce} = $config->{debounce};
+  foreach my $pin (keys %{$config->{pin_config}}) {
+    $buffer->{$pin}->{debounce} = $config->{pin_config}->{$pin}->{debounce};
+  }
   $command = $config->{command};
   $verbose = $config->{verbose};
   verbose "Configuration: %s", Data::Dumper->new([$config])->Terse(1)->Dump();
