@@ -99,23 +99,26 @@ Show usage and exit.
 Poll interval in milliseconds. When strategy is C<instant>, value changes are
 reported instantly, not only between poll intervals (see B<--strategy>).
 
-=item B<-p> I<pin>[I<:mode>[I:<strategy>]], B<--pin>=I<pin>[I<:mode>[I:<strategy>]]
-B<C<FIRMATA_PINS>>=I<pin>[I<:mode>[I:<strategy>]][,I<pin>[I<:mode>[I:<strategy>]]...]
+=item B<-m> I<mode>, B<--pin-mode> I<mode>, B<C<FIRMATA_PIN_MODE>>=I<mode>
+
+Set the default pin mode for all pins.
+Supported pin modes: C<input>, C<pullup>. Default: C<input>.
+
+=item B<-p> I<pin>[I<:mode>[I<:strategy>]], B<--pin>=I<pin>[I<:mode>[I<:strategy>]],
+B<C<FIRMATA_PINS>>=I<pin>[I<:mode>[I<:strategy>]][,I<pin>[I<:mode>[I<:strategy>]]...]
 
 Pin number with optional pin mode and detection strategy. To observe multiple pins,
 repeat the command line argument or assign a comma-separated list to the environment
 variable.
 
-Supported pin modes: C<input>, C<pullup>.
-
-Supported strategies: See B<--strategy>.
+For supported pin modes, see B<--pin-mode>. For supported strategies, see B<--strategy>.
 
 =item B<-s> I<strategy>, B<--strategy> I<strategy>, B<C<FIRMATA_STRATEGY>>=I<strategy>
 
 Set the default detection strategy for all pins.
 Supported strategies: C<instant>, C<debounce>. Default: C<instant>.
 
-When this option is C<instant>, changes will be reported immediately.
+When this option is C<instant>, changes will be reported instantly.
 
 When this option is C<debounce>, value changes will be buffered until the
 current poll interval has elapsed (see B<--interval>). This may help when
@@ -317,9 +320,10 @@ sub show_usage {
   info "                                   Default: '" . DEFAULT_DEVICE . "'";
   info " -h, --help                        Print this message and exit.";
   info " -i, --interval <interval>         Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
+  info " -m, --pin-mode <mode>             Default pin mode for all pins.";
+  info "                                   Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PIN_MODE . "'";
   info " -p, --pin <pin>[:mode[:strategy]] Pin number with optional pin mode and detection strategy.";
   info "                                   This option may be repeated for each pin.";
-  info "                                   Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PIN_MODE . "'";
   info " -s, --strategy <strategy>         Default detection strategy for all pins.";
   info "                                   Supported strategies: [instant, debounce]. Default: '" . DEFAULT_STRATEGY . "'";
   info " -v, --verbose                     Log verbosely. This option may be repeated to increase verbosity.";
@@ -349,6 +353,7 @@ sub read_configuration {
       'device|d=s'     => \$config->{device},
       'help|h'         => \$help,
       'interval|i=s'   => \$config->{interval},
+      'pin-mode|m=s'   => \$config->{pin_mode},
       'pin|p=s'        => \@pin_args,
       'strategy|s=s'   => \$config->{strategy},
       'verbose|v+'     => \$config->{verbose},
@@ -375,8 +380,13 @@ sub read_configuration {
   error "Interval '$config->{interval}' is not a positive number."
     unless $config->{interval} =~ /^\d+$/;
 
+  # pin mode
+  $config->{pin_mode} //= $ENV{'FIRMATA_PIN_MODE'} // DEFAULT_PIN_MODE;
+  error "Pin mode '$config->{pin_mode}' is not supported."
+    unless grep(/^$config->{pin_mode}$/, keys %{PIN_MODES()});
+
   # pins
-  $config->{pin_config} = read_pin_config($config->{strategy}, @pin_args);
+  $config->{pin_config} = read_pin_config($config->{strategy}, $config->{pin_mode}, @pin_args);
   error "At least one pin argument is required."
     unless ($config->{pin_config} or $help);
 
@@ -393,14 +403,14 @@ sub read_configuration {
 # Read and validate pin configuration from the command line and apply defaults.
 #
 sub read_pin_config {
-  my ($default_strategy, @pin_args) = @_;
+  my ($default_strategy, $default_pin_mode, @pin_args) = @_;
 
   my $pin_config;
   foreach (@pin_args) {
     my ($pin, $pin_mode, $strategy) = split(':', $_);
     error "Pin parameter '$pin' is not a positive number." unless $pin =~ /^\d+$/;
 
-    $pin_mode //= DEFAULT_PIN_MODE;
+    $pin_mode //= $default_pin_mode;
     error "Mode '$pin_mode' for pin $pin is not supported." unless grep(/^$pin_mode$/, keys %{PIN_MODES()});
     $pin_config->{$pin}->{mode} = PIN_MODES->{$pin_mode};
 

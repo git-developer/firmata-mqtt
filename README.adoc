@@ -84,14 +84,9 @@ On Debian based systems, dependencies may be installed using the command
 |Environment variable|Description|Allowed values|Default|Example
 
 |`FIRMATA_PINS`
-|Comma-separated list of pin number with optional pin mode
-
+|Comma-separated list of pin number with optional pin mode and detection strategy
 |_pin_[_:mode_[_:strategy_]][_,pin_[_:mode_[_:strategy_]] ...]
-
-Pin modes: `input` / `pullup`
-|Pin: _no default_
-
-Pin Mode: `pullup`
+|_no default_
 |`2`
 
 `2,3,4`
@@ -103,6 +98,12 @@ Pin Mode: `pullup`
 |Any special character file
 |`/dev/ttyUSB0`
 |`/dev/ttyUSB1`
+
+|`FIRMATA_PIN_MODE`
+|Default pin mode for all pins.
+|`input` / `pullup`
+|`pullup`
+|`input`
 
 |`FIRMATA_INTERVAL`
 |Poll interval in milliseconds. When strategy is `instant`, value changes are
@@ -195,7 +196,7 @@ overriden per pin (see `FIRMATA_PINS`).
     MQTT_OPTIONS: "-h broker-host"
 
   - Connect to firmata device at `/dev/ttyUSB0` (default)
-  - Configure pin `2` as digital input with pullup
+  - Configure pin `2` as digital input with pullup (default)
   - Enable software debouncing
   - Publish to `broker-host`
 
