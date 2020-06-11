@@ -216,7 +216,7 @@ use Device::Firmata;
 use constant {
   DEFAULT_COMMAND  => "$FindBin::Bin/mqtt-publish",
   DEFAULT_DEVICE   => '/dev/ttyUSB0',
-  DEFAULT_INTERVAL => 100,
+  DEFAULT_INTERVAL => 50,
   DEFAULT_PIN_MODE => 'pullup',
   DEFAULT_STRATEGY => 'instant',
 };

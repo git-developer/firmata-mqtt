@@ -126,8 +126,8 @@ overriden per pin (see `FIRMATA_PINS`).
 |Poll interval in milliseconds. When strategy is `instant`, value changes are
 reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
 |Positive integer
-|`100`
 |`50`
+|`100`
 
 |`FIRMATA_COMMAND`
 |Command that is run for each message. See <<Command Line Interface>> for details.
@@ -306,8 +306,6 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
       - /dev/ttyUSB0
       environment:
         FIRMATA_PINS: "9:pullup:debounce"
-        # sample rate < 70 ms
-        FIRMATA_INTERVAL: "50"
         MQTT_OPTIONS: "-h broker-host"
 ----
 
