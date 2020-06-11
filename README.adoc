@@ -49,7 +49,7 @@ On Debian based systems, dependencies may be installed using the command
       environment:
         MQTT_OPTIONS: "-h broker-host"
         FIRMATA_PINS: "9,12"
-        FIRMATA_STRATEGY: "debounce"
+        FIRMATA_TEMPLATE: "pullup:debounce"
 ----
 . Start a container:
 +
@@ -84,8 +84,8 @@ On Debian based systems, dependencies may be installed using the command
 |Environment variable|Description|Allowed values|Default|Example
 
 |`FIRMATA_PINS`
-|Comma-separated list of pin number with optional pin mode and detection strategy
-|_pin_[_:mode_[_:strategy_]][_,pin_[_:mode_[_:strategy_]] ...]
+|Comma-separated list of pin number with optional pin configuration
+|_pin_[_:configuration][_,pin_[_:configuration] ...]
 |_no default_
 |`2`
 
@@ -99,11 +99,28 @@ On Debian based systems, dependencies may be installed using the command
 |`/dev/ttyUSB0`
 |`/dev/ttyUSB1`
 
-|`FIRMATA_PIN_MODE`
-|Default pin mode for all pins.
-|`input` / `pullup`
-|`pullup`
-|`input`
+|`FIRMATA_TEMPLATE`
+|Template containing the default pin configuration for all pins.
+
+A _pin configuration_ is a colon-separated list of pin mode and
+detection strategy.
+
+When detection strategy is set to `instant`, changes will be reported instantly.
+When set to `debounce`, value changes will be buffered until the current poll
+interval has elapsed (see `FIRMATA_INTERVAL`). This may help when bouncing
+switches are connected to the Firmata device.
+Please note that this option effectively reduces the sample rate to the poll
+interval, thus the poll interval should be chosen carefully according to the
+connected hardware. The option serves as default for all pins and may be
+overriden per pin (see `FIRMATA_PINS`).
+
+|`input` / `pullup` `:` `instant` / `debounce`
+|`pullup:instant`
+|`input:`
+
+`pullup:debounce`
+
+`:instant`
 
 |`FIRMATA_INTERVAL`
 |Poll interval in milliseconds. When strategy is `instant`, value changes are
@@ -111,19 +128,6 @@ reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
 |Positive integer
 |`100`
 |`50`
-
-|`FIRMATA_STRATEGY`
-|Default detection strategy for all pins. When this option is set to `instant`,
-changes will be reported instantly. When set to `debounce`, value changes will
-be buffered until the current poll interval has elapsed (see `FIRMATA_INTERVAL`).
-This may help when bouncing switches are connected to the Firmata device.
-Please note that this option effectively reduces the sample rate to the poll
-interval, thus the poll interval should be chosen carefully according to the
-connected hardware. The option serves as default for all pins and may be
-overriden per pin (see `FIRMATA_PINS`).
-|`instant` / `debounce`
-|`instant`
-|`debounce`
 
 |`FIRMATA_COMMAND`
 |Command that is run for each message. See <<Command Line Interface>> for details.
@@ -192,11 +196,11 @@ overriden per pin (see `FIRMATA_PINS`).
 +
   environment:
     FIRMATA_PINS: "2"
-    FIRMATA_STRATEGY: "debounce"
+    FIRMATA_TEMPLATE: "pullup:debounce"
     MQTT_OPTIONS: "-h broker-host"
 
   - Connect to firmata device at `/dev/ttyUSB0` (default)
-  - Configure pin `2` as digital input with pullup (default)
+  - Configure pin `2` as digital input with pullup
   - Enable software debouncing
   - Publish to `broker-host`
 
@@ -301,8 +305,7 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
       devices:
       - /dev/ttyUSB0
       environment:
-        FIRMATA_PINS: "9"
-        FIRMATA_STRATEGY: "debounce"
+        FIRMATA_PINS: "9:pullup:debounce"
         # sample rate < 70 ms
         FIRMATA_INTERVAL: "50"
         MQTT_OPTIONS: "-h broker-host"

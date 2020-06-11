@@ -96,44 +96,50 @@ Show usage and exit.
 
 =item B<-i> I<interval>, B<--interval>=I<interval>, B<C<FIRMATA_INTERVAL>>=I<interval>
 
-Poll interval in milliseconds. When strategy is C<instant>, value changes are
+Poll interval in milliseconds. When detection strategy is C<instant>, value changes are
 reported instantly, not only between poll intervals (see B<--strategy>).
 
-=item B<-m> I<mode>, B<--pin-mode> I<mode>, B<C<FIRMATA_PIN_MODE>>=I<mode>
+=item B<-p> I<pin>[I<:configuration>], B<--pin>=I<pin>[I<:configuration>],
+B<C<FIRMATA_PINS>>=I<pin>[I<:configuration>][,I<pin>[I<:configuration>]...]
 
-Set the default pin mode for all pins.
-Supported pin modes: C<input>, C<pullup>. Default: C<input>.
+Pin number with optional pin configuration. See section I<pin configuration>
+for details. To observe multiple pins, repeat the command line argument
+or assign a comma-separated list to the environment variable.
 
-=item B<-p> I<pin>[I<:mode>[I<:strategy>]], B<--pin>=I<pin>[I<:mode>[I<:strategy>]],
-B<C<FIRMATA_PINS>>=I<pin>[I<:mode>[I<:strategy>]][,I<pin>[I<:mode>[I<:strategy>]]...]
+=item B<-t> I<configuration>, B<--template> I<configuration>, B<C<FIRMATA_TEMPLATE>>=I<configuration>
 
-Pin number with optional pin mode and detection strategy. To observe multiple pins,
-repeat the command line argument or assign a comma-separated list to the environment
-variable.
+A template containing the default pin configuration for all pins.
+See section I<pin configuration> for details.
 
-For supported pin modes, see B<--pin-mode>. For supported strategies, see B<--strategy>.
-
-=item B<-s> I<strategy>, B<--strategy> I<strategy>, B<C<FIRMATA_STRATEGY>>=I<strategy>
-
-Set the default detection strategy for all pins.
-Supported strategies: C<instant>, C<debounce>. Default: C<instant>.
-
-When this option is C<instant>, changes will be reported instantly.
-
-When this option is C<debounce>, value changes will be buffered until the
-current poll interval has elapsed (see B<--interval>). This may help when
-bouncing switches are connected to the Firmata device. Please note that this
-option effectively reduces the sample rate to the poll interval, thus the poll
-interval should be chosen carefully according to the connected hardware.
-
-The option serves as default for all pins and may be overriden per pin
-(see B<--pin>).
-
-=item B<-v>, B<--verbose>,  B<C<FIRMATA_VERBOSE>>
+=item B<-v>, B<--verbose>, B<C<FIRMATA_VERBOSE>>
 
 Log more verbose.
 
 =back
+
+=head2 Pin configuration
+
+A I<pin configuration> is a colon-separated list of pin mode and
+detection strategy.
+
+=head3 Pin Mode
+
+Supported pin modes: C<input>, C<pullup>.
+
+Default: C<input>.
+
+=head3 Detection strategy
+
+Supported detection strategies: C<instant>, C<debounce>.
+
+Default: C<instant>.
+
+When strategy is C<instant>, changes will be reported instantly.
+When strategy is C<debounce>, value changes will be buffered until the
+current poll interval has elapsed (see B<--interval>). This may help when
+bouncing switches are connected to the Firmata device. Please note that this
+option effectively reduces the sample rate to the poll interval, thus the poll
+interval should be chosen carefully according to the connected hardware.
 
 
 =head1 EXAMPLES
@@ -209,10 +215,13 @@ use Device::Firmata;
 # Configuration defaults
 use constant {
   DEFAULT_COMMAND  => "$FindBin::Bin/mqtt-publish",
-  DEFAULT_STRATEGY => 'instant',
   DEFAULT_DEVICE   => '/dev/ttyUSB0',
   DEFAULT_INTERVAL => 100,
   DEFAULT_PIN_MODE => 'pullup',
+  DEFAULT_STRATEGY => 'instant',
+};
+use constant {
+  DEFAULT_TEMPLATE => join(':', DEFAULT_PIN_MODE, DEFAULT_STRATEGY)
 };
 
 # Supported pin modes
@@ -314,19 +323,21 @@ sub handle_signal {
 sub show_usage {
   info "Usage: $0 [options]\n";
   info "Options:";
-  info " -c, --command <command>           Command that is run for each message.";
-  info "                                   Default: '" . DEFAULT_COMMAND . "'";
-  info " -d, --device <device>             Serial firmata device to read messages from.";
-  info "                                   Default: '" . DEFAULT_DEVICE . "'";
-  info " -h, --help                        Print this message and exit.";
-  info " -i, --interval <interval>         Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
-  info " -m, --pin-mode <mode>             Default pin mode for all pins.";
-  info "                                   Supported pin modes: [input, pullup]. Default: '" . DEFAULT_PIN_MODE . "'";
-  info " -p, --pin <pin>[:mode[:strategy]] Pin number with optional pin mode and detection strategy.";
-  info "                                   This option may be repeated for each pin.";
-  info " -s, --strategy <strategy>         Default detection strategy for all pins.";
-  info "                                   Supported strategies: [instant, debounce]. Default: '" . DEFAULT_STRATEGY . "'";
-  info " -v, --verbose                     Log verbosely. This option may be repeated to increase verbosity.";
+  info " -c, --command <command>    Command that is run for each message.";
+  info "                            Default: '" . DEFAULT_COMMAND . "'";
+  info " -d, --device <device>      Serial firmata device to read messages from.";
+  info "                            Default: '" . DEFAULT_DEVICE . "'";
+  info " -h, --help                 Print this message and exit.";
+  info " -i, --interval <interval>  Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
+  info " -p, --pin <pin>[:<config>] Pin number with optional pin configuration.";
+  info "                            This option may be repeated for each pin.";
+  info "                            <config> is a colon separated list of:";
+  info "                              Pin mode:           [input, pullup]";
+  info "                              Detection strategy: [instant, debounce]";
+  info " -t, --template <config>    Template with default configuration for all pins.";
+  info "                            Default: '" . DEFAULT_TEMPLATE . "'";
+  info " -v, --verbose              Log verbosely.";
+  info "                            This option may be repeated to increase verbosity.";
   info "";
 }
 
@@ -353,9 +364,8 @@ sub read_configuration {
       'device|d=s'     => \$config->{device},
       'help|h'         => \$help,
       'interval|i=s'   => \$config->{interval},
-      'pin-mode|m=s'   => \$config->{pin_mode},
       'pin|p=s'        => \@pin_args,
-      'strategy|s=s'   => \$config->{strategy},
+      'template|t=s'   => \$config->{template},
       'verbose|v+'     => \$config->{verbose},
   );
   error "Unknown argument(s): " . join(",", @ARGV) if (@ARGV > 0);
@@ -364,11 +374,6 @@ sub read_configuration {
   $config->{command}  //= $ENV{'FIRMATA_COMMAND'}  // DEFAULT_COMMAND;
   error "Command '$config->{command}' is not an executable file."
     unless -x $config->{command};
-
-  # detection strategy
-  $config->{strategy} //= $ENV{'FIRMATA_STRATEGY'} // DEFAULT_STRATEGY;
-  error "Detection strategy '$config->{strategy}' is not supported."
-    unless grep(/^$config->{strategy}$/, keys %{STRATEGIES()});
 
   # device
   $config->{device}   //= $ENV{'FIRMATA_DEVICE'}   // DEFAULT_DEVICE;
@@ -380,13 +385,11 @@ sub read_configuration {
   error "Interval '$config->{interval}' is not a positive number."
     unless $config->{interval} =~ /^\d+$/;
 
-  # pin mode
-  $config->{pin_mode} //= $ENV{'FIRMATA_PIN_MODE'} // DEFAULT_PIN_MODE;
-  error "Pin mode '$config->{pin_mode}' is not supported."
-    unless grep(/^$config->{pin_mode}$/, keys %{PIN_MODES()});
+  # template
+  $config->{template} //= $ENV{'FIRMATA_TEMPLATE'} // DEFAULT_TEMPLATE;
 
   # pins
-  $config->{pin_config} = read_pin_config($config->{strategy}, $config->{pin_mode}, @pin_args);
+  $config->{pin_config} = read_pin_config($config->{template}, @pin_args);
   error "At least one pin argument is required."
     unless ($config->{pin_config} or $help);
 
@@ -403,7 +406,17 @@ sub read_configuration {
 # Read and validate pin configuration from the command line and apply defaults.
 #
 sub read_pin_config {
-  my ($default_strategy, $default_pin_mode, @pin_args) = @_;
+  my ($template, @pin_args) = @_;
+
+  my ($default_pin_mode, $default_strategy) = split(':', $template);
+
+  $default_pin_mode ||= DEFAULT_PIN_MODE;
+  error "Default pin mode '$default_pin_mode' is not supported."
+    unless grep(/^$default_pin_mode$/, keys %{PIN_MODES()});
+
+  $default_strategy ||= DEFAULT_STRATEGY;
+  error "Default detection strategy '$default_strategy' is not supported."
+    unless grep(/^$default_strategy$/, keys %{STRATEGIES()});
 
   my $pin_config;
   foreach (@pin_args) {
