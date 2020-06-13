@@ -18,9 +18,11 @@ This program connects to a microcontroller (e.g. Arduino) using the Firmata
 protocol and observes its input pins. For each value change of an observed pin,
 an external command is called with the following arguments: 
 
- pin value timestamp duration count total
+ pin value timestamp duration count total rate
 
-Illustration:
+=head2 Arguments
+
+Illustration of a value change:
 
   ──┐               ┌──  1
     │←───── d ─────→│
@@ -31,8 +33,6 @@ Illustration:
   v: value
   t: timestamp
   d: duration
-
-=head2 Arguments
 
 =over 4
 
@@ -63,17 +63,23 @@ An integer containing ths pin's number of changes to the current value.
 
 An integer containing the pin's total number of changes.
 
+=item C<rate>
+
+A string containing the value change rate per hour with an optional unit.
+
 =back
 
 =head2 Example
 
- 9 1 1591428675.880354881 2.1215808391571 3 5
+ '9' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
 
 Explanation: pin B<9> has changed to value B<1> at B<1591428675.880354881>
 (2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
 stable for about B<2.122> seconds (with value 0). This is the B<3>rd time
 that pin 9 changed to 1. The total number of value changes (either 0 → 1
-or 1 → 0) of pin 9 is B<5>.
+or 1 → 0) of pin 9 is B<5>. If we suppose that an energy meter is connected and
+1 Wh has been consumed within the duration, then the duration corresponds to the
+power of B<1696.85 W>.
 
 =head1 OPTIONS
 
@@ -96,50 +102,116 @@ Show usage and exit.
 
 =item B<-i> I<interval>, B<--interval>=I<interval>, B<C<FIRMATA_INTERVAL>>=I<interval>
 
-Poll interval in milliseconds. When detection strategy is C<instant>, value changes are
-reported instantly, not only between poll intervals (see B<--strategy>).
+Poll interval in milliseconds. When detection strategy is C<instant>, value
+changes are reported instantly, not only between poll intervals (see
+I<Pin Configuration> / I<Detection strategy>).
 
 =item B<-p> I<pin>[I<:configuration>], B<--pin>=I<pin>[I<:configuration>],
 B<C<FIRMATA_PINS>>=I<pin>[I<:configuration>][,I<pin>[I<:configuration>]...]
 
-Pin number with optional pin configuration. See section I<pin configuration>
+Pin number with optional pin configuration. See section I<Pin Configuration>
 for details. To observe multiple pins, repeat the command line argument
 or assign a comma-separated list to the environment variable.
 
 =item B<-t> I<configuration>, B<--template> I<configuration>, B<C<FIRMATA_TEMPLATE>>=I<configuration>
 
 A template containing the default pin configuration for all pins.
-See section I<pin configuration> for details.
+See section I<Pin Configuration> for details.
 
-=item B<-v>, B<--verbose>, B<C<FIRMATA_VERBOSE>>
+=item B<-v>, B<--verbose>, B<C<FIRMATA_VERBOSITY>>=I<verbosity>
 
 Log more verbose.
 
 =back
 
-=head2 Pin configuration
+=head2 Pin Configuration
 
-A I<pin configuration> is a colon-separated list of pin mode and
-detection strategy.
+A I<pin configuration> is a colon-separated list of the properties listed in
+this section. All properties are optional, trailing colons may be omitted.
+
+=over 2
+
+=item Example for an optical energy meter sending a C<LOW> impulse for every Wh:
+
+C<pullup:instant:falling:1:W>
+
+=item Example for a mechanical water meter sending 2000 C<LOW> impulses for every m³:
+
+C<pullup:debounce:falling:2000:m³/h>
+
+=item Example for a mechanical switch:
+
+C<pullup:debounce>
+
+=item Example for use of the default configuration with debouncing and unit C<W>:
+
+C<:debounce:::W>
+
+=back
 
 =head3 Pin Mode
 
-Supported pin modes: C<input>, C<pullup>.
+Supported pin modes: C<input>, C<pullup>. Default: C<input>.
 
-Default: C<input>.
+See L<Digital Pins|https://www.arduino.cc/en/Tutorial/DigitalPins> in the
+Arduino Tutorial for details.
 
 =head3 Detection strategy
 
-Supported detection strategies: C<instant>, C<debounce>.
+Supported detection strategies: C<instant>, C<debounce>. Default: C<instant>.
 
-Default: C<instant>.
+=over
 
-When strategy is C<instant>, changes will be reported instantly.
-When strategy is C<debounce>, value changes will be buffered until the
+=item C<instant>:
+
+Changes will be reported instantly.
+
+=item C<debounce>:
+
+Value changes will be buffered until the
 current poll interval has elapsed (see B<--interval>). This may help when
 bouncing switches are connected to the Firmata device. Please note that this
 option effectively reduces the sample rate to the poll interval, thus the poll
 interval should be chosen carefully according to the connected hardware.
+
+=back
+
+=head3 Rate trigger
+
+Supported rate triggers: C<none>, C<falling>, C<rising>, C<any>. Default: C<none>.
+
+When rate trigger ist set, the value changes are supposed to come from a meter
+device, and a I<rate> per hour is calculated as C<3600 / (frequency * duration)>.
+
+=over
+
+=item C<falling>:
+
+The rate will be calculated for every value change from C<1> to C<0>.
+
+=item C<rising>:
+
+The rate will be calculated for every value change from C<0> to C<1>.
+
+=item C<any>:
+
+The rate will be calculated for every value change.
+
+=item C<none>:
+
+The rate will not be calculated.
+
+=back
+
+=head3 Rate frequency
+
+The frequency tells how many changes per hour the meter device emits.
+
+Supported frequencies: positive numbers
+
+=head3 Rate unit
+
+The unit contains the unit of the meter device. It is appended to the rate.
 
 
 =head1 EXAMPLES
@@ -165,7 +237,7 @@ Same as above.
 
  observe-firmata-input -p 2:pullup -d /dev/ttyUSB0 -v
 
-Same as above, but be more verbose.
+Same as above, but be verbose.
 
 =item
 
@@ -197,13 +269,14 @@ Same as above.
 use strict;
 use warnings;
 use sigtrap qw(handler handle_signal normal-signals);
+
 use Data::Dumper;
 use FindBin;
+use Device::Firmata;
+use Device::Firmata::Constants qw(:all);
 use Getopt::Long qw(GetOptions);
 use Time::HiRes qw(time);
 use Try::Tiny;
-use Device::Firmata::Constants qw/ :all /;
-use Device::Firmata;
 
 
 #----------------------------------------------------------------------
@@ -212,29 +285,40 @@ use Device::Firmata;
 # Constants
 ##
 
-# Configuration defaults
-use constant {
-  DEFAULT_COMMAND  => "$FindBin::Bin/mqtt-publish",
-  DEFAULT_DEVICE   => '/dev/ttyUSB0',
-  DEFAULT_INTERVAL => 50,
-  DEFAULT_PIN_MODE => 'pullup',
-  DEFAULT_STRATEGY => 'instant',
-};
-use constant {
-  DEFAULT_TEMPLATE => join(':', DEFAULT_PIN_MODE, DEFAULT_STRATEGY)
-};
+use constant RETURN_CODE_SUCCESS => 0;
 
-# Supported pin modes
 use constant PIN_MODES => {
   'input'  => PIN_INPUT,
   'pullup' => PIN_PULLUP
 };
 
-# Supported detection strategies
-use constant STRATEGIES => {
-  'instant'  => 0,
-  'debounce' => 1
+use constant STRATEGIES => (
+  'instant',
+  'debounce'
+);
+
+use constant TRIGGERS => {
+  'none' => '',
+  'any', => '[01]',
+  'falling', => '0',
+  'rising' => '1'
 };
+
+# Configuration defaults
+use constant {
+  DEFAULT_COMMAND   => "$FindBin::Bin/mqtt-publish",
+  DEFAULT_DEVICE    => '/dev/ttyUSB0',
+  DEFAULT_FREQUENCY => 1,
+  DEFAULT_INTERVAL  => 50,
+  DEFAULT_PIN_MODE  => 'pullup',
+  DEFAULT_STRATEGY  => 'instant',
+  DEFAULT_TRIGGER   => 'none',
+  DEFAULT_VERBOSITY => 0
+};
+use constant {
+  DEFAULT_TEMPLATE => join(':', DEFAULT_PIN_MODE, DEFAULT_STRATEGY, DEFAULT_TRIGGER, DEFAULT_FREQUENCY)
+};
+
 
 #----------------------------------------------------------------------
 
@@ -255,7 +339,6 @@ my $verbose;
 #
 # $buffer
 #   $pin
-#     debounce
 #     data
 #       current
 #         timestamp
@@ -266,6 +349,10 @@ my $verbose;
 #       1
 #         timestamp
 #         count
+#     frequency
+#     strategy
+#     trigger
+#     unit
 my $buffer = {};
 
 #----------------------------------------------------------------------
@@ -279,7 +366,7 @@ sub stopped {
 }
 
 sub stop {
-  my $code = shift // 0;
+  my $code = shift // RETURN_CODE_SUCCESS;
   $exit_code = $code if (!stopped() or ($code > $exit_code));
 }
 
@@ -332,8 +419,11 @@ sub show_usage {
   info " -p, --pin <pin>[:<config>] Pin number with optional pin configuration.";
   info "                            This option may be repeated for each pin.";
   info "                            <config> is a colon separated list of:";
-  info "                              Pin mode:           [input, pullup]";
-  info "                              Detection strategy: [instant, debounce]";
+  info "                              Pin mode:           " . join(', ', sort keys %{PIN_MODES()});
+  info "                              Detection strategy: " . join(', ', STRATEGIES);
+  info "                              Trigger:            " . join(', ', sort keys %{TRIGGERS()});
+  info "                              Frequency:          a positive number";
+  info "                              Unit:               a string";
   info " -t, --template <config>    Template with default configuration for all pins.";
   info "                            Default: '" . DEFAULT_TEMPLATE . "'";
   info " -v, --verbose              Log verbosely.";
@@ -394,7 +484,7 @@ sub read_configuration {
     unless ($config->{pin_config} or $help);
 
   # verbose
-  $config->{verbose} //= $ENV{'FIRMATA_VERBOSE'} // 0;
+  $config->{verbose} //= $ENV{'FIRMATA_VERBOSITY'} // DEFAULT_VERBOSITY;
 
   stop() if $help;
 
@@ -408,32 +498,58 @@ sub read_configuration {
 sub read_pin_config {
   my ($template, @pin_args) = @_;
 
-  my ($default_pin_mode, $default_strategy) = split(':', $template);
+  my ($default_pin_mode, $default_strategy, $default_trigger, $default_frequency, $default_unit)
+    = map { $_ eq '' ? undef : $_  } split(':', $template);
 
-  $default_pin_mode ||= DEFAULT_PIN_MODE;
-  error "Default pin mode '$default_pin_mode' is not supported."
-    unless grep(/^$default_pin_mode$/, keys %{PIN_MODES()});
-
-  $default_strategy ||= DEFAULT_STRATEGY;
-  error "Default detection strategy '$default_strategy' is not supported."
-    unless grep(/^$default_strategy$/, keys %{STRATEGIES()});
+  $default_pin_mode = pick_choice($default_pin_mode, DEFAULT_PIN_MODE, 'Default pin mode',           keys %{PIN_MODES()});
+  $default_strategy = pick_choice($default_strategy, DEFAULT_STRATEGY, 'Default detection strategy', STRATEGIES);
+  $default_trigger  = pick_choice($default_trigger,  DEFAULT_TRIGGER,  'Default trigger',            keys %{TRIGGERS()});
+  $default_frequency //= DEFAULT_FREQUENCY;
+  error "Default frequency '$default_frequency' is not a positive number." if $default_frequency !~ /^\d+(\.\d+)?$/;
 
   my $pin_config;
   foreach (@pin_args) {
-    my ($pin, $pin_mode, $strategy) = split(':', $_);
-    error "Pin parameter '$pin' is not a positive number." unless $pin =~ /^\d+$/;
+    my ($pin, $pin_mode, $strategy, $trigger, $frequency, $unit)
+      = map { $_ eq '' ? undef : $_  } split(':', $_);
 
-    $pin_mode //= $default_pin_mode;
-    error "Mode '$pin_mode' for pin $pin is not supported." unless grep(/^$pin_mode$/, keys %{PIN_MODES()});
-    $pin_config->{$pin}->{mode} = PIN_MODES->{$pin_mode};
+    error "Pin argument '$pin' is not a positive integer." unless $pin =~ /^\d+$/;
 
-    $strategy //= $default_strategy;
-    error "Detection strategy '$strategy' for pin $pin is not supported." unless grep(/^$strategy$/, keys %{STRATEGIES()});
-    $pin_config->{$pin}->{debounce} = STRATEGIES->{$strategy};
+    $pin_config->{$pin}->{mode}      = pick_choice($pin_mode, $default_pin_mode, "Pin mode for pin $pin",           keys %{PIN_MODES()});
+    $pin_config->{$pin}->{strategy}  = pick_choice($strategy, $default_strategy, "Detection strategy for pin $pin", STRATEGIES);
+    $pin_config->{$pin}->{trigger}   = pick_choice($trigger,  $default_trigger,  "Trigger for pin $pin",            keys %{TRIGGERS()});
+
+    $frequency //= $default_frequency;
+    error "Frequency for pin $pin '$frequency' is not a positive number." if ($frequency !~ /^\d+(\.\d+)?$/ or $frequency == 0);
+    $pin_config->{$pin}->{frequency} = $frequency;
+
+    $pin_config->{$pin}->{unit}      = $unit // $default_unit;
   }
   return $pin_config;
 }
 
+sub pick_choice {
+  my ($choice, $default, $name, @options) = @_;
+
+  $choice //= $default;
+  error "$name '$choice' is not supported. Choose one of: " . join(', ', @options)
+    unless grep(/^$choice$/, @options);
+  return $choice;
+}
+
+sub apply_configuration {
+  my ($config) = @_;
+  $verbose = $config->{verbose};
+  $command = $config->{command};
+  foreach my $pin (sort {$a <=> $b} keys %{$config->{pin_config}}) {
+    foreach ('strategy', 'frequency', 'unit') {
+      $buffer->{$pin}->{$_} = $config->{pin_config}->{$pin}->{$_};
+    }
+    my $trigger_pattern = TRIGGERS->{$config->{pin_config}->{$pin}->{trigger}};
+    $buffer->{$pin}->{trigger} = $trigger_pattern;
+    debug "Trigger pattern for pin %d: %s", $pin, $trigger_pattern;
+  }
+  verbose "Configuration: %s", Data::Dumper->new([$config])->Terse(1)->Dump();
+}
 
 #----------------------------------------------------------------------
 
@@ -453,7 +569,8 @@ sub buffer_put {
 
 sub buffer_take {
   my ($pin) = @_;
-  my $data = $buffer->{$pin}->{data};
+  my $pin_info = $buffer->{$pin};
+  my $data = $pin_info->{data};
   my $current = delete $data->{current};
   return if !defined $current;
 
@@ -488,6 +605,7 @@ sub buffer_take {
   my $duration = $current_timestamp - $change_timestamp;
   my $state_count = ++$data->{$value}->{count};
   my $change_count = $state_count + ($data->{$inverted_value}->{count} // 0);
+
   my $state = {
     pin       => $pin,
     value     => $value,
@@ -496,6 +614,16 @@ sub buffer_take {
     count     => $state_count,
     total     => $change_count,
   };
+
+  my $trigger = $pin_info->{trigger};
+  if ($value =~ /^$trigger$/ and $duration > 0) {
+    my $frequency = $pin_info->{frequency};
+    my $rate = sprintf('%.2f', 3600.0 / ($frequency * $duration));
+    my $unit = $pin_info->{unit};
+    $rate .= " $unit" if defined $unit;
+    $state->{rate} = $rate;
+  }
+
   return $state;
 }
 
@@ -504,7 +632,7 @@ sub buffer_report {
   my $state = buffer_take($pin);
   if (defined $state) {
     my @args = ($pin, $state->{value}, $state->{timestamp}, $state->{duration}, $state->{count}, $state->{total});
-    verbose "%02d = %s at %.6f for %.6fs (change %d/%d)", @args;
+    push(@args, $state->{rate}) if defined $state->{rate};
     debug "Calling '%s' with args" . (" '%s'" x scalar(@args)), ($command, @args);
     system($command, @args) == 0
       or error "Command '$command' returned " . ($? >> 8) . ": $!";
@@ -530,7 +658,7 @@ sub firmata_connect {
   my $metadata = $platform->{metadata};
   my $firmware_version = $metadata->{firmware_version};
   foreach (keys %$COMMANDS) {
-      $platform->{protocol}->{protocol_version} = $_ if ($firmware_version eq $_);
+    $platform->{protocol}->{protocol_version} = $_ if ($firmware_version eq $_);
   }
   verbose "Server implementation: %s %s with protocol %s", $metadata->{firmware}, $firmware_version, $platform->{protocol}->{protocol_version};
   return $platform;
@@ -555,8 +683,8 @@ sub firmata_observe {
   my @pins = (sort {$a <=> $b} keys %{$pin_config});
   info "Observed pin(s): " . join(", ", @pins);
   foreach my $pin (@pins) {
-    my $mode = $pin_config->{$pin}->{mode};
-    verbose "Configuring pin %02d for mode %s", $pin, $mode;
+    my $mode = PIN_MODES->{$pin_config->{$pin}->{mode}};
+    verbose "Configuring pin %02d for mode %d", $pin, $mode;
     $platform->pin_mode($pin => $mode);
     $platform->observe_digital($pin, \&firmata_report);
   }
@@ -573,7 +701,7 @@ sub firmata_report {
     return;
   }
   buffer_put($pin, $new);
-  buffer_report($pin) if !$buffer->{$pin}->{debounce};
+  buffer_report($pin) if ('instant' eq $buffer->{$pin}->{strategy});
 }
 
 #
@@ -586,9 +714,7 @@ sub firmata_poll {
     # sleep for $interval ms
     select undef, undef, undef, $interval/1000.0;
     foreach my $pin (keys %{$buffer}) {
-      if ($buffer->{$pin}->{debounce}) {
-        buffer_report($pin);
-      }
+      buffer_report($pin) if ('debounce' eq $buffer->{$pin}->{strategy});
     }
   }
 }
@@ -618,13 +744,7 @@ sub firmata_start {
 #
 sub main {
   my $config = read_configuration();
-  # set global variables from config
-  foreach my $pin (keys %{$config->{pin_config}}) {
-    $buffer->{$pin}->{debounce} = $config->{pin_config}->{$pin}->{debounce};
-  }
-  $command = $config->{command};
-  $verbose = $config->{verbose};
-  verbose "Configuration: %s", Data::Dumper->new([$config])->Terse(1)->Dump();
+  apply_configuration($config);
   if (stopped()) {
     show_usage();
   } else {

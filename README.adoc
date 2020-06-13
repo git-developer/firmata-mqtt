@@ -49,7 +49,7 @@ On Debian based systems, dependencies may be installed using the command
       environment:
         MQTT_OPTIONS: "-h broker-host"
         FIRMATA_PINS: "9,12"
-        FIRMATA_TEMPLATE: "pullup:debounce"
+        FIRMATA_TEMPLATE: "pullup:debounce:falling:1:W"
 ----
 . Start a container:
 +
@@ -57,22 +57,18 @@ On Debian based systems, dependencies may be installed using the command
 
 . Receive value changes:
 +
-  $ mosquitto_sub -h broker-host -t firmata/#
-  { "pin":9, "value":1, "timestamp":1591433920.998897, "duration":0.000000, "count":1, "total":1 }
-  { "pin":12, "value":1, "timestamp":1591433920.998964, "duration":0.000000, "count":1, "total":1 }
-  { "pin":9, "value":0, "timestamp":1591433925.275766, "duration":4.276869, "count":1, "total":2 }
-  { "pin":9, "value":1, "timestamp":1591433925.460701, "duration":0.184935, "count":2, "total":3 }
-  { "pin":12, "value":0, "timestamp":1591433936.678961, "duration":15.679997, "count":1, "total":2 }
-  { "pin":12, "value":1, "timestamp":1591433936.759564, "duration":0.080603, "count":2, "total":3 }
+  $ mosquitto_sub -h broker-host -v -t firmata/#
+  firmata/9/json { "pin":9, "value":1, "timestamp":1592068107.949424, "duration":0.000000, "count":1, "total":1 }
+  firmata/12/json { "pin":12, "value":1, "timestamp":1592068107.949565, "duration":0.000000, "count":1, "total":1 }
+  firmata/9/json { "pin":9, "value":0, "timestamp":1592068113.127548, "duration":5.178124, "count":1, "total":2, "rate":"695.23 W" }
+  firmata/9/json { "pin":9, "value":1, "timestamp":1592068113.298353, "duration":0.170805, "count":2, "total":3 }
+  firmata/12/json { "pin":12, "value":0, "timestamp":1592068125.001946, "duration":17.052381, "count":1, "total":2, "rate":"211.11 W" }
+  firmata/12/json { "pin":12, "value":1, "timestamp":1592068125.184615, "duration":0.182669, "count":2, "total":3 }
   ^C
   $ docker-compose down
   $ docker-compose logs
   Connecting to Firmata device at /dev/ttyUSB0
-  Connection established.
-  Server implementation: ConfigurableFirmata.ino V_2_10 with protocol V_2_06
   Observed pin(s): 9, 12
-  Configuring pin 09 for mode 11
-  Configuring pin 12 for mode 11
   Stopping due to signal TERM
   Disconnected from Firmata device.
 
@@ -91,7 +87,7 @@ On Debian based systems, dependencies may be installed using the command
 
 `2,3,4`
 
-`2,3:input,4:pullup:debounce`
+`2,3:input,4:pullup:debounce:falling:1:W`
 
 |`FIRMATA_DEVICE`
 |Serial firmata device to read messages from.
@@ -101,30 +97,20 @@ On Debian based systems, dependencies may be installed using the command
 
 |`FIRMATA_TEMPLATE`
 |Template containing the default pin configuration for all pins.
+See <<Pin Configuration>> for details.
+|`input` / `pullup` `:` `instant` / `debounce` : `none` / `rising` / `falling` / `any` : _number_ : _string_
+|`pullup:instant:none`
+|`pullup:instant:falling:1:W`
 
-A _pin configuration_ is a colon-separated list of pin mode and
-detection strategy.
-
-When detection strategy is set to `instant`, changes will be reported instantly.
-When set to `debounce`, value changes will be buffered until the current poll
-interval has elapsed (see `FIRMATA_INTERVAL`). This may help when bouncing
-switches are connected to the Firmata device.
-Please note that this option effectively reduces the sample rate to the poll
-interval, thus the poll interval should be chosen carefully according to the
-connected hardware. The option serves as default for all pins and may be
-overriden per pin (see `FIRMATA_PINS`).
-
-|`input` / `pullup` `:` `instant` / `debounce`
-|`pullup:instant`
-|`input:`
+`pullup:debounce:falling:2000:m³/h`
 
 `pullup:debounce`
 
-`:instant`
+`:debounce:::W`
 
 |`FIRMATA_INTERVAL`
 |Poll interval in milliseconds. When strategy is `instant`, value changes are
-reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
+reported immediately, not only between poll intervals (see <<Detection strategy>>).
 |Positive integer
 |`50`
 |`100`
@@ -135,7 +121,7 @@ reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
 |`/opt/firmata-mqtt/mqtt-publish`
 |`/bin/echo`
 
-|`FIRMATA_VERBOSE`
+|`FIRMATA_VERBOSITY`
 |Log verbosity.
 |`0` / `1` (verbose) / `2` (debug)
 |`0`
@@ -191,33 +177,78 @@ reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
 
 |===
 
+=== Pin Configuration
+A _pin configuration_ is a colon-separated list of the properties listed in
+this section. All properties are optional, trailing colons may be omitted.
+
+==== Pin Mode
+
+Supported pin modes: `input`, `pullup`. Default: `input`.
+
+See https://www.arduino.cc/en/Tutorial/DigitalPins[Digital Pins] in the
+Arduino Tutorial for details.
+
+==== Detection strategy
+
+Supported detection strategies: `instant`, `debounce`. Default: `instant`.
+
+* `instant`: Changes will be reported instantly.
+* `debounce`: Value changes will be buffered until the current poll interval
+  has elapsed (see `FIRMATA_INTERVAL`). This may help when bouncing switches
+  are connected to the Firmata device. Please note that this option effectively
+  reduces the sample rate to the poll interval, thus the poll interval should be
+  chosen carefully according to the connected hardware.
+
+==== Rate trigger
+
+Supported rate triggers: `none`, `falling`, `rising`, `any`. Default: `none`.
+
+When rate trigger ist set, the value changes are supposed to come from a meter
+device, and a I<rate> per hour is calculated as `3600 / (frequency * duration)`.
+
+* `falling`: The rate will be calculated for every value change from `1` to `0`.
+* `rising`: The rate will be calculated for every value change from `0` to `1`.
+* `any`: The rate will be calculated for every value change.
+* `none`: The rate will not be calculated.
+
+==== Rate frequency
+
+The frequency tells how many changes per hour the meter device emits.
+
+Supported frequencies: positive numbers
+
+==== Rate unit
+
+The unit contains the unit of the meter device. It is appended to the rate.
+
+
 == Examples
-. Example: Default for a S0 counter
+. S0 energy meters emitting 1000 impulses per kWh
 +
   environment:
-    FIRMATA_PINS: "2"
-    FIRMATA_TEMPLATE: "pullup:debounce"
+    FIRMATA_PINS: "2,3,4"
+    FIRMATA_TEMPLATE: "pullup:debounce:falling:1:W"
     MQTT_OPTIONS: "-h broker-host"
 
   - Connect to firmata device at `/dev/ttyUSB0` (default)
-  - Configure pin `2` as digital input with pullup
-  - Enable software debouncing
+  - Configure pins `2`, `3` and `4` as digital input with pullup
+  - Enable software debouncing and rate calculation for all pins
   - Publish to `broker-host`
 
-. Example: Different devices with lower sample rate
+. Different devices with lower sample rate
 +
   environment:
     FIRMATA_DEVICE: "/dev/ttyUSB1"
     FIRMATA_PINS: "2:pullup,3:input"
-    FIRMATA_INTERVAL: "50"
-    FIRMATA_VERBOSE: "1"
+    FIRMATA_INTERVAL: "20"
+    FIRMATA_VERBOSITY: "1"
     MQTT_OPTIONS: "-h broker-host"
 
   - Connect to firmata device at `/dev/ttyUSB1`
   - Disable software debouncing (default)
   - Configure pin `2` as digital input with pullup
   - Configure pin `3` as digital input pin (without pullup)
-  - Poll every `50` ms for changes
+  - Poll every `20` ms for changes
   - Log verbose messages
   - Publish to `broker-host`
 
@@ -225,7 +256,7 @@ reported immediately, not only between poll intervals (see `FIRMATA_STRATEGY`).
 +
   environment:
     FIRMATA_PINS: "2"
-    FIRMATA_VERBOSE: "2"
+    FIRMATA_VERBOSITY: "2"
     FIRMATA_COMMAND: "/bin/echo"
 
   - Connect to firmata device at `/dev/ttyUSB0`
@@ -239,7 +270,7 @@ microcontroller using the Firmata protocol and observes its input pins. For
 each value change of an observed pin, an external command is called with the
 following arguments: 
 
-    pin value timestamp duration count total
+    pin value timestamp duration count total rate
 
 By default, the external command is a shell script that converts the arguments
 to JSON (or optionally keeps them raw) and publishes them over MQTT. The
@@ -276,15 +307,20 @@ Illustration of a value change:
 - `total`
   An integer containing the pin's total number of changes.
 
+- `rate`
+  A string containing the value change rate per hour with an optional unit.
+
 === Example
 
-    9 1 1591428675.880354881 2.1215808391571 3 5
+    '9' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
 
 Explanation: pin **9** has changed to value **1** at **1591428675.880354881**
 (2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
 stable for about **2.122** seconds (with value 0). This is the **3**rd time
 that pin 9 changed to 1. The total number of value changes (either 0 → 1
-or 1 → 0) of pin 9 is **5**.
+or 1 → 0) of pin 9 is **5**. If we suppose that an energy meter is connected and
+1 Wh has been consumed within the duration, then the duration corresponds to the
+power of **1696.85 W**.
 
 == FHEM integration
 This section contains an example configuration to integrate a power meter with
@@ -305,7 +341,7 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
       devices:
       - /dev/ttyUSB0
       environment:
-        FIRMATA_PINS: "9:pullup:debounce"
+        FIRMATA_PINS: "9:pullup:debounce:falling:1:W"
         MQTT_OPTIONS: "-h broker-host"
 ----
 
@@ -314,14 +350,9 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
 ----
  define mqtt_firmata_pin9 MQTT2_DEVICE
  attr   mqtt_firmata_pin9 devicetopic firmata/9
- attr   mqtt_firmata_pin9 userattr impulseFrequency unit
- # 1000 imp/kWh = 1 imp/Wh
- attr   mqtt_firmata_pin9 impulseFrequency 1
- attr   mqtt_firmata_pin9 unit W
- attr   mqtt_firmata_pin9 userReadings power:value:.0 { sprintf('%.2f %s', 3600.0 / (AttrVal($name, 'impulseFrequency', undef) * ReadingsVal($name, 'duration', undef)), AttrVal($name, 'unit', undef)) }
- # do not use pin as reading
- attr   mqtt_firmata_pin9 jsonMap pin:0
- attr   mqtt_firmata_pin9 readingList $DEVICETOPIC/json.* { json2nameValue($EVENT) }
+ # do not use 'pin' and 'value' as readings, and rename 'rate' to 'power'
+ attr   mqtt_firmata_pin9 jsonMap pin:0 value:0 rate:power
+ attr   mqtt_firmata_pin9 readingList $DEVICETOPIC/json.* { json2nameValue($EVENT, '', $JSONMAP) }
  attr   mqtt_firmata_pin9 stateFormat power W
  attr   mqtt_firmata_pin9 icon icoBlitz
 ----
