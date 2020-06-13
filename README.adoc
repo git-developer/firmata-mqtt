@@ -81,7 +81,7 @@ On Debian based systems, dependencies may be installed using the command
 
 |`FIRMATA_PINS`
 |Comma-separated list of pin number with optional pin configuration
-|_pin_[_:configuration][_,pin_[_:configuration] ...]
+|_pin_[_:configuration_][_,pin_[_:configuration_] ...]
 |_no default_
 |`2`
 
@@ -204,7 +204,9 @@ Supported detection strategies: `instant`, `debounce`. Default: `instant`.
 Supported rate triggers: `none`, `falling`, `rising`, `any`. Default: `none`.
 
 When rate trigger ist set, the value changes are supposed to come from a meter
-device, and a I<rate> per hour is calculated as `3600 / (frequency * duration)`.
+device, and a _rate_ per hour is calculated as
+[listing]
+3600 / (frequency * duration)
 
 * `falling`: The rate will be calculated for every value change from `1` to `0`.
 * `rising`: The rate will be calculated for every value change from `0` to `1`.
@@ -223,27 +225,32 @@ The unit contains the unit of the meter device. It is appended to the rate.
 
 
 == Examples
-. S0 energy meters emitting 1000 impulses per kWh
+. Example: S0 energy meters emitting 1000 impulses per kWh
 +
+[source,yaml]
+----
   environment:
     FIRMATA_PINS: "2,3,4"
     FIRMATA_TEMPLATE: "pullup:debounce:falling:1:W"
     MQTT_OPTIONS: "-h broker-host"
+----
 
   - Connect to firmata device at `/dev/ttyUSB0` (default)
   - Configure pins `2`, `3` and `4` as digital input with pullup
   - Enable software debouncing and rate calculation for all pins
   - Publish to `broker-host`
 
-. Different devices with lower sample rate
+. Example: Different devices with lower sample rate
 +
+[source,yaml]
+----
   environment:
     FIRMATA_DEVICE: "/dev/ttyUSB1"
     FIRMATA_PINS: "2:pullup,3:input"
     FIRMATA_INTERVAL: "20"
     FIRMATA_VERBOSITY: "1"
     MQTT_OPTIONS: "-h broker-host"
-
+----
   - Connect to firmata device at `/dev/ttyUSB1`
   - Disable software debouncing (default)
   - Configure pin `2` as digital input with pullup
@@ -254,11 +261,13 @@ The unit contains the unit of the meter device. It is appended to the rate.
 
 . Example: Debugging
 +
+[source,yaml]
+----
   environment:
     FIRMATA_PINS: "2"
     FIRMATA_VERBOSITY: "2"
     FIRMATA_COMMAND: "/bin/echo"
-
+----
   - Connect to firmata device at `/dev/ttyUSB0`
   - Configure pin `2` as digital input with pullup
   - Log debug messages
