@@ -48,7 +48,7 @@ On Debian based systems, dependencies may be installed using the command
       - /dev/ttyUSB0
       environment:
         MQTT_OPTIONS: "-h broker-host"
-        FIRMATA_PINS: "9,12"
+        FIRMATA_PINS: "9:boiler,12"
         FIRMATA_TEMPLATE: "pullup:debounce:falling:1:W"
 ----
 . Start a container:
@@ -58,11 +58,11 @@ On Debian based systems, dependencies may be installed using the command
 . Receive value changes:
 +
   $ mosquitto_sub -h broker-host -v -t firmata/#
-  firmata/9/json { "pin":9, "value":1, "timestamp":1592068107.949424, "duration":0.000000, "count":1, "total":1 }
+  firmata/9/json { "pin":9, "name":"boiler", "value":1, "timestamp":1592068107.949424, "duration":0.000000, "count":1, "total":1 }
   firmata/12/json { "pin":12, "value":1, "timestamp":1592068107.949565, "duration":0.000000, "count":1, "total":1 }
-  firmata/9/json { "pin":9, "value":0, "timestamp":1592068113.127548, "duration":5.178124, "count":1, "total":2, "rate":"695.23 W" }
-  firmata/9/json { "pin":9, "value":1, "timestamp":1592068113.298353, "duration":0.170805, "count":2, "total":3 }
-  firmata/12/json { "pin":12, "value":0, "timestamp":1592068125.001946, "duration":17.052381, "count":1, "total":2, "rate":"211.11 W" }
+  firmata/9/json { "pin":9, "name":"boiler", "rate":"695.23 W", "value":0, "timestamp":1592068113.127548, "duration":5.178124, "count":1, "total":2 }
+  firmata/9/json { "pin":9, "name":"boiler", "value":1, "timestamp":1592068113.298353, "duration":0.170805, "count":2, "total":3 }
+  firmata/12/json { "pin":12, "rate":"211.11 W", "value":0, "timestamp":1592068125.001946, "duration":17.052381, "count":1, "total":2 }
   firmata/12/json { "pin":12, "value":1, "timestamp":1592068125.184615, "duration":0.182669, "count":2, "total":3 }
   ^C
   $ docker-compose down
@@ -80,14 +80,14 @@ On Debian based systems, dependencies may be installed using the command
 |Environment variable|Description|Allowed values|Default|Example
 
 |`FIRMATA_PINS`
-|Comma-separated list of pin number with optional pin configuration
-|_pin_[_:configuration_][_,pin_[_:configuration_] ...]
+|Comma-separated list of pin number with optional name and pin configuration
+|_pin_[_:name_[_:configuration_]][_,pin_[_:name_[_:configuration_]] ...]
 |_no default_
 |`2`
 
 `2,3,4`
 
-`2,3:input,4:pullup:debounce:falling:1:W`
+`2,3::input,4:boiler:pullup:debounce:falling:1:W`
 
 |`FIRMATA_DEVICE`
 |Serial firmata device to read messages from.
@@ -230,14 +230,14 @@ The unit contains the unit of the meter device. It is appended to the rate.
 [source,yaml]
 ----
   environment:
-    FIRMATA_PINS: "2,3,4"
+    FIRMATA_PINS: "2:boiler,3:washer"
     FIRMATA_TEMPLATE: "pullup:debounce:falling:1:W"
     MQTT_OPTIONS: "-h broker-host"
 ----
 
   - Connect to firmata device at `/dev/ttyUSB0` (default)
-  - Configure pins `2`, `3` and `4` as digital input with pullup
-  - Enable software debouncing and rate calculation for all pins
+  - Configure pin `2` with name `boiler` and pin `3` with name `washer`
+  - Enable pullup, software debouncing and rate calculation for all pins
   - Publish to `broker-host`
 
 . Example: Different devices with lower sample rate
@@ -246,7 +246,7 @@ The unit contains the unit of the meter device. It is appended to the rate.
 ----
   environment:
     FIRMATA_DEVICE: "/dev/ttyUSB1"
-    FIRMATA_PINS: "2:pullup,3:input"
+    FIRMATA_PINS: "2::pullup,3::input"
     FIRMATA_INTERVAL: "20"
     FIRMATA_VERBOSITY: "1"
     MQTT_OPTIONS: "-h broker-host"
@@ -279,7 +279,7 @@ microcontroller using the Firmata protocol and observes its input pins. For
 each value change of an observed pin, an external command is called with the
 following arguments: 
 
-    pin value timestamp duration count total rate
+    pin name value timestamp duration count total rate
 
 By default, the external command is a shell script that converts the arguments
 to JSON (or optionally keeps them raw) and publishes them over MQTT. The
@@ -301,6 +301,8 @@ Illustration of a value change:
 
 - `pin`: An integer containing the pin number.
 
+- `name`: A string containing a name for the connected device.
+
 - `value`: The value as reported by Firmata, e.g. `0` or `1`.
 
 - `timestamp`: A decimal containing the timestamp of the value change.
@@ -321,15 +323,15 @@ Illustration of a value change:
 
 === Example
 
-    '9' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
+    '9' 'boiler' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
 
-Explanation: pin **9** has changed to value **1** at **1591428675.880354881**
-(2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
-stable for about **2.122** seconds (with value 0). This is the **3**rd time
-that pin 9 changed to 1. The total number of value changes (either 0 → 1
-or 1 → 0) of pin 9 is **5**. If we suppose that an energy meter is connected and
-1 Wh has been consumed within the duration, then the duration corresponds to the
-power of **1696.85 W**.
+Explanation: pin **9** with name **boiler** has changed to value **1**
+at **1591428675.880354881** (2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns).
+Before the change, the pin was stable for about **2.122** seconds (with value 0).
+This is the **3**rd time that pin 9 changed to 1.
+The total number of value changes (either 0 → 1 or 1 → 0) of pin 9 is **5**.
+If we suppose that an energy meter is connected and 1 Wh has been consumed
+within the duration, then the duration corresponds to the power of **1696.85 W**.
 
 == FHEM integration
 This section contains an example configuration to integrate a power meter with
@@ -350,7 +352,7 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
       devices:
       - /dev/ttyUSB0
       environment:
-        FIRMATA_PINS: "9:pullup:debounce:falling:1:W"
+        FIRMATA_PINS: "9:boiler:pullup:debounce:falling:1:W"
         MQTT_OPTIONS: "-h broker-host"
 ----
 

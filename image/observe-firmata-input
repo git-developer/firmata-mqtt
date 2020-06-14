@@ -18,7 +18,7 @@ This program connects to a microcontroller (e.g. Arduino) using the Firmata
 protocol and observes its input pins. For each value change of an observed pin,
 an external command is called with the following arguments: 
 
- pin value timestamp duration count total rate
+ pin name value timestamp duration count total rate
 
 =head2 Arguments
 
@@ -39,6 +39,10 @@ Illustration of a value change:
 =item C<pin>
 
 An integer containing the pin number.
+
+=item C<name>
+
+A string containing a name for the connected device.
 
 =item C<value>
 
@@ -71,15 +75,15 @@ A string containing the value change rate per hour with an optional unit.
 
 =head2 Example
 
- '9' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
+ '9' 'boiler' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
 
-Explanation: pin B<9> has changed to value B<1> at B<1591428675.880354881>
-(2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns). Before the change, the pin was
-stable for about B<2.122> seconds (with value 0). This is the B<3>rd time
-that pin 9 changed to 1. The total number of value changes (either 0 → 1
-or 1 → 0) of pin 9 is B<5>. If we suppose that an energy meter is connected and
-1 Wh has been consumed within the duration, then the duration corresponds to the
-power of B<1696.85 W>.
+Explanation: pin B<9> with name B<boiler> has changed to value B<1> at
+B<1591428675.880354881> (2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns).
+Before the change, the pin was stable for about B<2.122> seconds (with value 0).
+This is the B<3>rd time that pin 9 changed to 1.
+The total number of value changes (either 0 → 1 or 1 → 0) of pin 9 is B<5>.
+If we suppose that an energy meter is connected and 1 Wh has been consumed
+within the duration, then the duration corresponds to the power of B<1696.85 W>.
 
 =head1 OPTIONS
 
@@ -106,10 +110,10 @@ Poll interval in milliseconds. When detection strategy is C<instant>, value
 changes are reported instantly, not only between poll intervals (see
 I<Pin Configuration> / I<Detection strategy>).
 
-=item B<-p> I<pin>[I<:configuration>], B<--pin>=I<pin>[I<:configuration>],
-B<C<FIRMATA_PINS>>=I<pin>[I<:configuration>][,I<pin>[I<:configuration>]...]
+=item B<-p> I<pin>[I<:name>[I<:configuration>]], B<--pin>=I<pin>[I<:name>[I<:configuration>]],
+B<C<FIRMATA_PINS>>=I<pin>[I<:name>[I<:configuration>]][,I<pin>[I<:name>[I<:configuration>]]...]
 
-Pin number with optional pin configuration. See section I<Pin Configuration>
+Pin number with optional name and pin configuration. See section I<Pin Configuration>
 for details. To observe multiple pins, repeat the command line argument
 or assign a comma-separated list to the environment variable.
 
@@ -235,23 +239,24 @@ Same as above.
 
 =item
 
- observe-firmata-input -p 2:pullup -d /dev/ttyUSB0 -v
+ observe-firmata-input -p 2::pullup -d /dev/ttyUSB0 -v
 
 Same as above, but be verbose.
 
 =item
 
- observe-firmata-input --pin 2:pullup --pin 3:input --device /dev/ttyUSB1 --interval 50 --command /bin/echo
+ observe-firmata-input --pin 2:boiler:pullup --pin 3::input --device /dev/ttyUSB1 --interval 20 --command /bin/echo
 
 Connect to firmata device at C</dev/ttyUSB1>,
-configure pin C<2> as digital input with pullup and pin C<3> as digital input pin (without pullup),
-poll every 50ms for changes,
+configure pin C<2> named C<boiler> as digital input with pullup
+and pin C<3> as digital input pin (without pullup),
+poll every 20ms for changes,
 log messages to stderr
 and call C</bin/echo> for each change.
 
 =item
 
- FIRMATA_PINS=2:pullup,3:input FIRMATA_DEVICE=/dev/ttyUSB1 FIRMATA_INTERVAL=50 FIRMATA_COMMAND=/bin/echo observe-firmata-input
+ FIRMATA_PINS=2:boiler:pullup,3:input FIRMATA_DEVICE=/dev/ttyUSB1 FIRMATA_INTERVAL=20 FIRMATA_COMMAND=/bin/echo observe-firmata-input
 
 Same as above.
 
@@ -313,10 +318,11 @@ use constant {
   DEFAULT_PIN_MODE  => 'pullup',
   DEFAULT_STRATEGY  => 'instant',
   DEFAULT_TRIGGER   => 'none',
+  DEFAULT_UNIT      => '',
   DEFAULT_VERBOSITY => 0
 };
 use constant {
-  DEFAULT_TEMPLATE => join(':', DEFAULT_PIN_MODE, DEFAULT_STRATEGY, DEFAULT_TRIGGER, DEFAULT_FREQUENCY)
+  DEFAULT_TEMPLATE => join(':', DEFAULT_PIN_MODE, DEFAULT_STRATEGY, DEFAULT_TRIGGER, DEFAULT_FREQUENCY, DEFAULT_UNIT)
 };
 
 
@@ -350,6 +356,7 @@ my $verbose;
 #         timestamp
 #         count
 #     frequency
+#     name
 #     strategy
 #     trigger
 #     unit
@@ -410,24 +417,25 @@ sub handle_signal {
 sub show_usage {
   info "Usage: $0 [options]\n";
   info "Options:";
-  info " -c, --command <command>    Command that is run for each message.";
-  info "                            Default: '" . DEFAULT_COMMAND . "'";
-  info " -d, --device <device>      Serial firmata device to read messages from.";
-  info "                            Default: '" . DEFAULT_DEVICE . "'";
-  info " -h, --help                 Print this message and exit.";
-  info " -i, --interval <interval>  Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
-  info " -p, --pin <pin>[:<config>] Pin number with optional pin configuration.";
-  info "                            This option may be repeated for each pin.";
-  info "                            <config> is a colon separated list of:";
-  info "                              Pin mode:           " . join(', ', sort keys %{PIN_MODES()});
-  info "                              Detection strategy: " . join(', ', STRATEGIES);
-  info "                              Trigger:            " . join(', ', sort keys %{TRIGGERS()});
-  info "                              Frequency:          a positive number";
-  info "                              Unit:               a string";
-  info " -t, --template <config>    Template with default configuration for all pins.";
-  info "                            Default: '" . DEFAULT_TEMPLATE . "'";
-  info " -v, --verbose              Log verbosely.";
-  info "                            This option may be repeated to increase verbosity.";
+  info " -c, --command <command>   Command that is run for each message.";
+  info "                           Default: '" . DEFAULT_COMMAND . "'";
+  info " -d, --device <device>     Serial firmata device to read messages from.";
+  info "                           Default: '" . DEFAULT_DEVICE . "'";
+  info " -h, --help                Print this message and exit.";
+  info " -i, --interval <interval> Poll interval in ms. Default: '" . DEFAULT_INTERVAL . "'";
+  info " -p, --pin <pin>[:name[:<config>]] ";
+  info "                           Pin number with optional name and pin configuration.";
+  info "                           This option may be repeated for each pin.";
+  info "                           <config> is a colon separated list of:";
+  info "                             Pin mode:  " . join(', ', sort keys %{PIN_MODES()});
+  info "                             Strategy:  " . join(', ', STRATEGIES);
+  info "                             Trigger:   " . join(', ', sort keys %{TRIGGERS()});
+  info "                             Frequency: a positive number";
+  info "                             Unit:      a string";
+  info " -t, --template <config>   Template with default configuration for all pins.";
+  info "                           Default: '" . DEFAULT_TEMPLATE . "'";
+  info " -v, --verbose             Log verbosely.";
+  info "                           This option may be repeated to increase verbosity.";
   info "";
 }
 
@@ -509,10 +517,11 @@ sub read_pin_config {
 
   my $pin_config;
   foreach (@pin_args) {
-    my ($pin, $pin_mode, $strategy, $trigger, $frequency, $unit)
+    my ($pin, $name, $pin_mode, $strategy, $trigger, $frequency, $unit)
       = map { $_ eq '' ? undef : $_  } split(':', $_);
 
     error "Pin argument '$pin' is not a positive integer." unless $pin =~ /^\d+$/;
+    $pin_config->{$pin}->{name}      = $name;
 
     $pin_config->{$pin}->{mode}      = pick_choice($pin_mode, $default_pin_mode, "Pin mode for pin $pin",           keys %{PIN_MODES()});
     $pin_config->{$pin}->{strategy}  = pick_choice($strategy, $default_strategy, "Detection strategy for pin $pin", STRATEGIES);
@@ -541,7 +550,7 @@ sub apply_configuration {
   $verbose = $config->{verbose};
   $command = $config->{command};
   foreach my $pin (sort {$a <=> $b} keys %{$config->{pin_config}}) {
-    foreach ('strategy', 'frequency', 'unit') {
+    foreach ('frequency', 'name', 'strategy', 'unit') {
       $buffer->{$pin}->{$_} = $config->{pin_config}->{$pin}->{$_};
     }
     my $trigger_pattern = TRIGGERS->{$config->{pin_config}->{$pin}->{trigger}};
@@ -607,7 +616,6 @@ sub buffer_take {
   my $change_count = $state_count + ($data->{$inverted_value}->{count} // 0);
 
   my $state = {
-    pin       => $pin,
     value     => $value,
     timestamp => $current_timestamp,
     duration  => $duration,
@@ -631,8 +639,16 @@ sub buffer_report {
   my ($pin) = @_;
   my $state = buffer_take($pin);
   if (defined $state) {
-    my @args = ($pin, $state->{value}, $state->{timestamp}, $state->{duration}, $state->{count}, $state->{total});
-    push(@args, $state->{rate}) if defined $state->{rate};
+    my $name = $buffer->{$pin}->{name} // '';
+    my $rate = $state->{rate} // '';
+    my @args = ($pin,
+                $name,
+                $state->{value},
+                $state->{timestamp},
+                $state->{duration},
+                $state->{count},
+                $state->{total},
+                $rate);
     debug "Calling '%s' with args" . (" '%s'" x scalar(@args)), ($command, @args);
     system($command, @args) == 0
       or error "Command '$command' returned " . ($? >> 8) . ": $!";
