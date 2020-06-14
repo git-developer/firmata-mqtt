@@ -39,25 +39,19 @@ build_raw_message() {
 }
 
 build_json_message() {
-  [ ! "${#}" -lt "7" ] || cancel "too few arguments: '${@}'"
-  # the 'read' builtin cannot be used here, because 'name' is allowed to be an
-  # empty string and multiple occurrences of field separators are merged on
-  # field splitting. For details, see
-  # https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_06_05
-  pin="${1}"
-  name="${2}"
-  value="${3}"
-  timestamp="${4}"
-  duration="${5}"
-  count="${6}"
-  total="${7}"
-  rate="${8}"
-
-  content='"pin":%i'
-  [ -z "${name}" ] || content="${content}, \"name\":\"${name}\""
-  [ -z "${rate}" ] || content="${content}, \"rate\":\"${rate}\""
-  content="${content}, \"value\":%i, \"timestamp\":%.6f, \"duration\":%.6f, \"count\":%i, \"total\":%i"
-  printf "{ ${content} }" "${pin}" "${value}" "${timestamp}" "${duration}" "${count}" "${total}"
+  [ ! "${#}" -lt "8" ] || cancel "too few arguments: '${@}'"
+  cat <<-'EOF' | xargs -0 -I {} jq -n -c --args {} "${@}"
+	{
+	pin:       $ARGS.positional[0]|tonumber,
+	name:      $ARGS.positional[1],
+	rate:      $ARGS.positional[7],
+	value:     $ARGS.positional[2]|tonumber,
+	timestamp: $ARGS.positional[3]|tonumber,
+	duration:  $ARGS.positional[4]|tonumber,
+	count:     $ARGS.positional[5]|tonumber,
+	total:     $ARGS.positional[6]|tonumber,
+	} | del(.[] | select(. == ""))
+	EOF
 }
 
 main() {

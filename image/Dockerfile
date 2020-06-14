@@ -1,5 +1,5 @@
 FROM alpine
-RUN apk add mosquitto-clients perl-device-serialport perl-try-tiny
+RUN apk add mosquitto-clients jq perl-device-serialport perl-try-tiny
 RUN apk add perl-app-cpanminus wget make && \
     cpanm Device::Firmata && \
     apk del perl-app-cpanminus wget make && \
