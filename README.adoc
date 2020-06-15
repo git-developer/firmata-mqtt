@@ -364,7 +364,7 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
  # do not use 'pin' and 'value' as readings, and rename 'rate' to 'power'
  attr   mqtt_firmata_pin9 jsonMap pin:0 value:0 rate:power
  attr   mqtt_firmata_pin9 readingList $DEVICETOPIC/json.* { json2nameValue($EVENT, '', $JSONMAP) }
- attr   mqtt_firmata_pin9 stateFormat power W
+ attr   mqtt_firmata_pin9 stateFormat power
  attr   mqtt_firmata_pin9 icon icoBlitz
 ----
 
