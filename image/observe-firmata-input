@@ -703,6 +703,7 @@ sub firmata_observe {
     verbose "Configuring pin %02d for mode %d", $pin, $mode;
     $platform->pin_mode($pin => $mode);
     $platform->observe_digital($pin, \&firmata_report);
+    select undef, undef, undef, 0.1;
   }
 }
 
