@@ -69,13 +69,17 @@ An integer containing the pin's total number of changes.
 
 =item C<rate>
 
-A string containing the value change rate per hour with an optional unit.
+A string containing the value change rate per hour
+
+=item C<unit>
+
+A string containing the unit (e.g. W or m³).
 
 =back
 
 =head2 Example
 
- '9' 'boiler' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85 W'
+ '9' 'boiler' '1' '1591428675.880354881' '2.1215808391571' '3' '5' '1696.85' 'W'
 
 Explanation: pin B<9> with name B<boiler> has changed to value B<1> at
 B<1591428675.880354881> (2020-06-06 07:31:15 and 880 ms, 385 µs, 881 ns).
@@ -626,9 +630,7 @@ sub buffer_take {
   my $trigger = $pin_info->{trigger};
   if ($value =~ /^$trigger$/ and $duration > 0) {
     my $frequency = $pin_info->{frequency};
-    my $rate = sprintf('%.2f', 3600.0 / ($frequency * $duration));
-    my $unit = $pin_info->{unit};
-    $rate .= " $unit" if defined $unit;
+    my $rate = 3600.0 / ($frequency * $duration);
     $state->{rate} = $rate;
   }
 
@@ -639,8 +641,10 @@ sub buffer_report {
   my ($pin) = @_;
   my $state = buffer_take($pin);
   if (defined $state) {
-    my $name = $buffer->{$pin}->{name} // '';
+    my $pin_info = $buffer->{$pin};
+    my $name = $pin_info->{name} // '';
     my $rate = $state->{rate} // '';
+    my $unit = $rate eq '' ? '' : $pin_info->{unit} // '';
     my @args = ($pin,
                 $name,
                 $state->{value},
@@ -648,7 +652,8 @@ sub buffer_report {
                 $state->{duration},
                 $state->{count},
                 $state->{total},
-                $rate);
+                $rate,
+                $unit);
     debug "Calling '%s' with args" . (" '%s'" x scalar(@args)), ($command, @args);
     system($command, @args) == 0
       or error "Command '$command' returned " . ($? >> 8) . ": $!";
