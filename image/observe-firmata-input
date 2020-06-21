@@ -632,6 +632,9 @@ sub buffer_take {
     my $frequency = $pin_info->{frequency};
     my $rate = 3600.0 / ($frequency * $duration);
     $state->{rate} = $rate;
+  } elsif ($trigger ne TRIGGERS->{none}) {
+    # suppress report when rate is enabled but no rate was calculated
+    return;
   }
 
   return $state;

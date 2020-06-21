@@ -58,12 +58,8 @@ On Debian based systems, dependencies may be installed using the command
 . Receive value changes:
 +
   $ mosquitto_sub -h broker-host -v -t firmata/#
-  firmata/9/json {"pin":9,"name":"boiler","value":1,"timestamp":1592068107.949424,"duration":0.000000,"count":1,"total":1}
-  firmata/12/json {"pin":12,"value":1,"timestamp":1592068107.949565,"duration":0.000000,"count":1,"total":1}
-  firmata/9/json {"pin":9,"name":"boiler","rate":"695.23","unit":"W","value":0,"timestamp":1592068113.127548,"duration":5.178124,"count":1,"total":2}
-  firmata/9/json {"pin":9,"name":"boiler","value":1,"timestamp":1592068113.298353,"duration":0.170805,"count":2,"total":3}
-  firmata/12/json {"pin":12,"rate":"211.11","unit":"W","value":0,"timestamp":1592068125.001946,"duration":17.052381,"count":1,"total":2}
-  firmata/12/json {"pin":12,"value":1,"timestamp":1592068125.184615,"duration":0.182669,"count":2,"total":3}
+  firmata/9/json {"pin":9,"name":"boiler","rate":155.193070189773,"unit":"W","value":0,"timestamp":1592731404.896913,"duration":23.1969120502472,"count":1,"total":2}
+  firmata/12/json {"pin":12,"rate":85.9448365143275,"unit":"W","value":0,"timestamp":1592731423.586332,"duration":41.8873331546783,"count":1,"total":2}
   ^C
   $ docker-compose down
   $ docker-compose logs
