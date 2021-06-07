@@ -4,7 +4,7 @@ services:
   firmata-mqtt:
     image: "ckware/firmata-mqtt"
     container_name: "firmata-mqtt"
-    init: "true"
+    init: true
     restart: "unless-stopped"
     devices:
     - /dev/ttyUSB0
