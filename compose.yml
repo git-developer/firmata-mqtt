@@ -1,5 +1,4 @@
 ---
-version: "2.2"
 services:
   firmata-mqtt:
     image: "ckware/firmata-mqtt"
@@ -7,7 +6,7 @@ services:
     init: true
     restart: "unless-stopped"
     devices:
-    - /dev/ttyUSB0
+      - /dev/ttyUSB0
 #    environment:
 # required:
 #      FIRMATA_PINS: "2,3"
@@ -24,3 +23,6 @@ services:
 #      FORMAT_RAW: "false"
 #      FORMAT_RAW_SEPARATOR: " "
 #      FORMAT_JSON: "true"
+#      CLIENT_MOSQUITTO: "true"
+#      LOG_FILE:
+#      LOG_FORMAT: "%s %s\n"

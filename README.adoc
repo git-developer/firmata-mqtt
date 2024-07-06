@@ -14,11 +14,13 @@ automation system.
   https://github.com/firmata/ConfigurableFirmata[ConfigurableFirmata])
 * A running MQTT broker (e.g. https://mosquitto.org/[mosquitto])
 * Docker
-* Optional and recommended: docker-compose
+* Optional and recommended: Docker Compose
 
-On Debian based systems, dependencies may be installed using the command
+The Docker Compose [documentation](https://docs.docker.com/compose/install/)
+contains a comprehensive guide explaining several install options.
+On recent Debian based systems, dependencies may be installed using the command
 
- $ sudo apt-get install docker-ce docker-compose
+ $ sudo apt-get install docker-ce docker-compose-plugin
 
 
 == TL;DR
@@ -27,17 +29,16 @@ On Debian based systems, dependencies may be installed using the command
 . Connect a hardware device (e.g. a S0 counter) to the Arduino:
   * Device signal (+) -> Arduino digital pin (e.g. pin 2)
   * Device GND (-) -> Arduino GND
-. Create `docker-compose.yml` configuration file.
-. Run `docker-compose-up -d`.
+. Create `compose.yml` configuration file.
+. Run `docker compose up -d`.
 
 == Usage
 . Create a run configuration, e.g.
 +
-.docker-compose.yml
+.compose.yml
 [source,yaml]
 ----
   ---
-  version: "2.2"
   services:
     firmata-mqtt:
       image: "ckware/firmata-mqtt"
@@ -45,7 +46,7 @@ On Debian based systems, dependencies may be installed using the command
       init: "true"
       restart: "unless-stopped"
       devices:
-      - /dev/ttyUSB0
+        - /dev/ttyUSB0
       environment:
         MQTT_OPTIONS: "-h broker-host"
         FIRMATA_PINS: "9:boiler,12"
@@ -53,7 +54,7 @@ On Debian based systems, dependencies may be installed using the command
 ----
 . Start a container:
 +
-  $ docker-compose up -d
+  $ docker compose up -d
 
 . Receive value changes:
 +
@@ -61,8 +62,8 @@ On Debian based systems, dependencies may be installed using the command
   firmata/9/json {"pin":9,"name":"boiler","rate":155.193070189773,"unit":"W","value":0,"timestamp":1592731404.896913,"duration":23.1969120502472,"count":1,"total":2}
   firmata/12/json {"pin":12,"rate":85.9448365143275,"unit":"W","value":0,"timestamp":1592731423.586332,"duration":41.8873331546783,"count":1,"total":2}
   ^C
-  $ docker-compose down
-  $ docker-compose logs
+  $ docker compose down
+  $ docker compose logs
   Connecting to Firmata device at /dev/ttyUSB0
   Observed pin(s): 9, 12
   Stopping due to signal TERM
@@ -171,7 +172,33 @@ reported immediately, not only between poll intervals (see <<Detection strategy>
 |Whitespace (`\u0020`)
 |`,`
 
+|`CLIENT_MOSQUITTO`
+|Use Mosquitto as MQTT client?
+|`true` / `false`
+|`true`
+|`false`
+
 |===
+
+.Log Options
+[cols="1,3,1,1,1"]
+|===
+|Environment variable|Description|Allowed values|Default|Example
+
+|`LOG_FILE`
+|If set, topic and message are appended to a log file
+|File path
+|not set
+|`/var/log/tfrec-mqtt.log`
+
+|`LOG_FORMAT`
+|Format to write topic and message to log file
+|`printf`-compatible syntax for 2 arguments
+|`%s %s\n`
+|`{"topic":"%s","message":%s}\n`
+
+|===
+
 
 === Pin Configuration
 A _pin configuration_ is a colon-separated list of the properties listed in
@@ -337,7 +364,7 @@ This section contains an example configuration to integrate a power meter with
 https://fhem.de/[FHEM]. The power meter is a S0 counter emitting 1000 impulses
 per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when idle and changes to `0` shortly (~70 ms) for every consumed Wh.
 
-.docker-compose.yml
+.compose.yml
 [source,yaml]
 ----
   ---
