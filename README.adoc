@@ -368,7 +368,6 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
 [source,yaml]
 ----
   ---
-  version: "2.2"
   services:
     firmata-mqtt:
       image: "ckware/firmata-mqtt"
