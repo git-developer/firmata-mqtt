@@ -16,11 +16,8 @@ automation system.
 * Docker
 * Optional and recommended: Docker Compose
 
-The Docker Compose [documentation](https://docs.docker.com/compose/install/)
+The Docker Compose https://docs.docker.com/compose/install/[documentation]
 contains a comprehensive guide explaining several install options.
-On recent Debian based systems, dependencies may be installed using the command
-
- $ sudo apt-get install docker-ce docker-compose-plugin
 
 
 == TL;DR
@@ -189,7 +186,7 @@ reported immediately, not only between poll intervals (see <<Detection strategy>
 |If set, topic and message are appended to a log file
 |File path
 |not set
-|`/var/log/tfrec-mqtt.log`
+|`/var/log/custom-mqtt.log`
 
 |`LOG_FORMAT`
 |Format to write topic and message to log file
@@ -312,15 +309,19 @@ to JSON (or optionally keeps them raw) and publishes them over MQTT. The
 
 Illustration of a value change:
 
-    ──┐               ┌──  1
-      │←───── d ─────→│
-      └───────────────┘    0
-                      ↑    ↑
-                      t    v
-    v: value
-    t: timestamp
-    d: duration
+       ┌──────┐               ┌──  1
+       │←.....│←───── d ─────→│
+    ───┘      └───────────────┘    0
+       ↑      ↑               ↑    ↑
+       p      c               t    v
 
+    v: current pin state value
+    t: timestamp of current pin state change
+    c: timestamp of previous pin state change
+    p: timestamp of previous change to current pin state
+    d: duration, depending on rate trigger
+         'any': between c and t
+         'falling' or 'rising': between p and t
 
 - `pin`: An integer containing the pin number.
 
@@ -345,7 +346,7 @@ Illustration of a value change:
   A string containing the value change rate per hour.
 
 - `unit`
-  A string containing the unit (e.g. W or m³).
+  A string containing the unit (e.g. W or m³/h).
 
 === Example
 

@@ -586,6 +586,7 @@ sub buffer_take {
   my $data = $pin_info->{data};
   my $current = delete $data->{current};
   return if !defined $current;
+  my $trigger = $pin_info->{trigger};
 
 
 ################################################################################
@@ -615,7 +616,7 @@ sub buffer_take {
     return;
   }
 
-  my $duration = $current_timestamp - $change_timestamp;
+  my $duration = $current_timestamp - ($trigger eq TRIGGERS->{any} ? $change_timestamp : $previous_timestamp);
   my $state_count = ++$data->{$value}->{count};
   my $change_count = $state_count + ($data->{$inverted_value}->{count} // 0);
 
@@ -627,7 +628,6 @@ sub buffer_take {
     total     => $change_count,
   };
 
-  my $trigger = $pin_info->{trigger};
   if ($value =~ /^$trigger$/ and $duration > 0) {
     my $frequency = $pin_info->{frequency};
     my $rate = 3600.0 / ($frequency * $duration);
