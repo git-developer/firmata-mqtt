@@ -38,10 +38,10 @@ contains a comprehensive guide explaining several install options.
   ---
   services:
     firmata-mqtt:
-      image: "ckware/firmata-mqtt"
-      container_name: "firmata-mqtt"
+      image: ghcr.io/git-developer/firmata-mqtt
+      container_name: firmata-mqtt
       init: "true"
-      restart: "unless-stopped"
+      restart: unless-stopped
       devices:
         - /dev/ttyUSB0
       environment:
@@ -371,10 +371,10 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
   ---
   services:
     firmata-mqtt:
-      image: "ckware/firmata-mqtt"
-      container_name: "firmata-mqtt"
+      image: ghcr.io/git-developer/firmata-mqtt
+      container_name: firmata-mqtt
       init: "true"
-      restart: "unless-stopped"
+      restart: unless-stopped
       devices:
       - /dev/ttyUSB0
       environment:
@@ -405,4 +405,3 @@ per kWh. It is connected to pin 9 of an Arduino. The pin value stays at `1` when
 
 * History and details (in German): https://github.com/git-developer/fhem-examples/wiki/S0-Z%C3%A4hler-mit-ConfigurableFirmata[S0 Zähler mit ConfigurableFirmata]
 * Arduino Firmata impementation: https://github.com/firmata/ConfigurableFirmata[ConfigurableFirmata]
-* A similar project for temperature sensors: https://github.com/git-developer/tfrec-mqtt[tfrec-mqtt]
